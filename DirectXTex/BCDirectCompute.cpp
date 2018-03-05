@@ -28,9 +28,20 @@ namespace
     #include "Shaders\Compiled\BC6HEncode_TryModeG10CS.inc"
     #include "Shaders\Compiled\BC6HEncode_TryModeLE10CS.inc"
 
+    #include "Shaders\Compiled\BC7Encode_HQ_EncodeBlockCS.inc"
+    #include "Shaders\Compiled\BC7Encode_HQ_TryMode02CS.inc"
+    #include "Shaders\Compiled\BC7Encode_HQ_TryMode137CS.inc"
+    #include "Shaders\Compiled\BC7Encode_HQ_TryMode456CS.inc"
+
     struct BufferBC6HBC7
     {
         UINT color[4];
+    };
+
+    struct BufferBC6HBC7_HQ
+    {
+        UINT color[4];
+        UINT endPoints[3][2][4];
     };
 
     struct ConstantsBC6HBC7
@@ -166,6 +177,28 @@ HRESULT GPUCompressBC::Initialize(ID3D11Device* pDevice)
     if (FAILED(hr))
         return hr;
 
+    //--- Create compute shader library: BC7 HQ ------------------------------------------
+
+    // Modes 4, 5, 6
+    hr = pDevice->CreateComputeShader(BC7Encode_HQ_TryMode456CS, sizeof(BC7Encode_HQ_TryMode456CS), nullptr, m_BC7_hq_tryMode456CS.ReleaseAndGetAddressOf());
+    if (FAILED(hr))
+        return hr;
+
+    // Modes 1, 3, 7
+    hr = pDevice->CreateComputeShader(BC7Encode_HQ_TryMode137CS, sizeof(BC7Encode_HQ_TryMode137CS), nullptr, m_BC7_hq_tryMode137CS.ReleaseAndGetAddressOf());
+    if (FAILED(hr))
+        return hr;
+
+    // Modes 0, 2
+    hr = pDevice->CreateComputeShader(BC7Encode_HQ_TryMode02CS, sizeof(BC7Encode_HQ_TryMode02CS), nullptr, m_BC7_hq_tryMode02CS.ReleaseAndGetAddressOf());
+    if (FAILED(hr))
+        return hr;
+
+    // Encode
+    hr = pDevice->CreateComputeShader(BC7Encode_HQ_EncodeBlockCS, sizeof(BC7Encode_HQ_EncodeBlockCS), nullptr, m_BC7_hq_encodeBlockCS.ReleaseAndGetAddressOf());
+    if (FAILED(hr))
+        return hr;
+
     return S_OK;
 }
 
@@ -194,6 +227,8 @@ HRESULT GPUCompressBC::Prepare(size_t width, size_t height, DWORD flags, DXGI_FO
         m_bc7_mode02 = (flags & TEX_COMPRESS_BC7_USE_3SUBSETS) != 0;
         m_bc7_mode137 = true;
     }
+
+    m_hq = (flags & TEX_COMPRESS_BC7_HQ) != 0;
 
     size_t xblocks = std::max<size_t>(1, (width + 3) >> 2);
     size_t yblocks = std::max<size_t>(1, (height + 3) >> 2);
@@ -230,13 +265,13 @@ HRESULT GPUCompressBC::Prepare(size_t width, size_t height, DWORD flags, DXGI_FO
         return E_POINTER;
 
     // Create structured buffers
-    size_t bufferSize = num_blocks * sizeof(BufferBC6HBC7);
+    size_t bufferSize = num_blocks * sizeof(BufferBC6HBC7) * (m_hq ? 7 : 1);
     {
         D3D11_BUFFER_DESC desc = {};
         desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-        desc.StructureByteStride = sizeof(BufferBC6HBC7);
+        desc.StructureByteStride = static_cast<UINT>(sizeof(BufferBC6HBC7));
         desc.ByteWidth = static_cast<UINT>(bufferSize);
 
         HRESULT hr = pDevice->CreateBuffer(&desc, nullptr, m_output.ReleaseAndGetAddressOf());
@@ -290,7 +325,7 @@ HRESULT GPUCompressBC::Prepare(size_t width, size_t height, DWORD flags, DXGI_FO
     // Create shader resource views
     {
         D3D11_SHADER_RESOURCE_VIEW_DESC desc = {};
-        desc.Buffer.NumElements = static_cast<UINT>(num_blocks);
+        desc.Buffer.NumElements = static_cast<UINT>(num_blocks * (m_hq ? 7 : 1));
         desc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 
         HRESULT hr = pDevice->CreateShaderResourceView(m_err1.Get(), &desc, m_err1SRV.ReleaseAndGetAddressOf());
@@ -309,7 +344,7 @@ HRESULT GPUCompressBC::Prepare(size_t width, size_t height, DWORD flags, DXGI_FO
     // Create unordered access views
     {
         D3D11_UNORDERED_ACCESS_VIEW_DESC desc = {};
-        desc.Buffer.NumElements = static_cast<UINT>(num_blocks);
+        desc.Buffer.NumElements = static_cast<UINT>(num_blocks * (m_hq ? 7 : 1));
         desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
 
         HRESULT hr = pDevice->CreateUnorderedAccessView(m_output.Get(), &desc, m_outputUAV.ReleaseAndGetAddressOf());
@@ -456,7 +491,7 @@ HRESULT GPUCompressBC::Compress(const Image& srcImage, const Image& destImage)
         {
             //--- BC7 -----------------------------------------------------------------
             ID3D11ShaderResourceView* pSRVs[] = { sourceSRV.Get(), nullptr };
-            RunComputeShader(pContext, m_BC7_tryMode456CS.Get(), pSRVs, 2, m_constBuffer.Get(),
+            RunComputeShader(pContext, m_hq ? m_BC7_hq_tryMode456CS.Get() : m_BC7_tryMode456CS.Get(), pSRVs, 2, m_constBuffer.Get(),
                 m_err1UAV.Get(), std::max<UINT>((uThreadGroupCount + 3) / 4, 1));
 
             if (m_bc7_mode137)
@@ -490,7 +525,7 @@ HRESULT GPUCompressBC::Compress(const Image& srcImage, const Image& destImage)
                     }
 
                     pSRVs[1] = (i & 1) ? m_err2SRV.Get() : m_err1SRV.Get();
-                    RunComputeShader(pContext, m_BC7_tryMode137CS.Get(), pSRVs, 2, m_constBuffer.Get(),
+                    RunComputeShader(pContext, m_hq ? m_BC7_hq_tryMode137CS.Get() : m_BC7_tryMode137CS.Get(), pSRVs, 2, m_constBuffer.Get(),
                         (i & 1) ? m_err1UAV.Get() : m_err2UAV.Get(), uThreadGroupCount);
                 }
             }
@@ -525,13 +560,13 @@ HRESULT GPUCompressBC::Compress(const Image& srcImage, const Image& destImage)
                     }
 
                     pSRVs[1] = (i & 1) ? m_err1SRV.Get() : m_err2SRV.Get();
-                    RunComputeShader(pContext, m_BC7_tryMode02CS.Get(), pSRVs, 2, m_constBuffer.Get(),
+                    RunComputeShader(pContext, m_hq ? m_BC7_hq_tryMode02CS.Get() : m_BC7_tryMode02CS.Get(), pSRVs, 2, m_constBuffer.Get(),
                         (i & 1) ? m_err2UAV.Get() : m_err1UAV.Get(), uThreadGroupCount);
                 }
             }
 
             pSRVs[1] = (m_bc7_mode02 || m_bc7_mode137) ? m_err2SRV.Get() : m_err1SRV.Get();
-            RunComputeShader(pContext, m_BC7_encodeBlockCS.Get(), pSRVs, 2, m_constBuffer.Get(),
+            RunComputeShader(pContext, m_hq ? m_BC7_hq_encodeBlockCS.Get() : m_BC7_encodeBlockCS.Get(), pSRVs, 2, m_constBuffer.Get(),
                 m_outputUAV.Get(), std::max<UINT>((uThreadGroupCount + 3) / 4, 1));
         }
         else

@@ -93,6 +93,7 @@ enum OPTIONS
     OPT_COMPRESS_UNIFORM,
     OPT_COMPRESS_MAX,
     OPT_COMPRESS_QUICK,
+    OPT_COMPRESS_HQ,
     OPT_COMPRESS_DITHER,
     OPT_WIC_QUALITY,
     OPT_WIC_LOSSLESS,
@@ -177,6 +178,7 @@ const SValue g_pOptions[] =
     { L"bcuniform",     OPT_COMPRESS_UNIFORM },
     { L"bcmax",         OPT_COMPRESS_MAX },
     { L"bcquick",       OPT_COMPRESS_QUICK },
+    { L"bchq",          OPT_COMPRESS_HQ },
     { L"bcdither",      OPT_COMPRESS_DITHER },
     { L"wicq",          OPT_WIC_QUALITY },
     { L"wiclossless",   OPT_WIC_LOSSLESS },
@@ -1471,6 +1473,10 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                     return 1;
                 }
                 dwCompress |= TEX_COMPRESS_BC7_USE_3SUBSETS;
+                break;
+
+            case OPT_COMPRESS_HQ:
+                dwCompress |= TEX_COMPRESS_BC7_HQ;
                 break;
 
             case OPT_COMPRESS_QUICK:

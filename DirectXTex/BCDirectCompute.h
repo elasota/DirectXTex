@@ -31,6 +31,7 @@ private:
     float                                               m_alphaWeight;
     bool                                                m_bc7_mode02;
     bool                                                m_bc7_mode137;
+	bool												m_hq;
     size_t                                              m_width;
     size_t                                              m_height;
 
@@ -58,7 +59,12 @@ private:
     Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_tryMode456CS;
     Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_tryMode137CS;
     Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_tryMode02CS;
-    Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_encodeBlockCS;    
+    Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_encodeBlockCS;
+
+    Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_hq_tryMode456CS;
+    Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_hq_tryMode137CS;
+    Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_hq_tryMode02CS;
+    Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_hq_encodeBlockCS;
 };
 
 } // namespace
