@@ -737,6 +737,7 @@ namespace
         wprintf(L"   -bcdither           Use dithering for BC1-3\n");
         wprintf(L"   -bcmax              Use exhaustive compression (BC7 only)\n");
         wprintf(L"   -bcquick            Use quick compression (BC7 only)\n");
+        wprintf(L"   -bchq               High-quality mode (BC7 only)\n");
         wprintf(L"   -wicq <quality>     When writing images with WIC use quality (0.0 to 1.0)\n");
         wprintf(L"   -wiclossless        When writing images with WIC use lossless mode\n");
         wprintf(L"   -wicmulti           When writing images with WIC encode multiframe images\n");
