@@ -25,3 +25,5 @@ Release
 x64
 /Tests
 /wiki
+*.inc
+*.pdb
