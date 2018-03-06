@@ -1296,10 +1296,9 @@ if (threadInBlock < 16)
     }
 }
 
-[numthreads( THREAD_GROUP_SIZE, 1, 1 )]
-void TryMode02CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 0 2 have 3 subsets per block
+void TryMode02CS( uint GI, uint3 groupID, uint modeId, uint num_partitions ) // mode 0 2 have 3 subsets per block
 {
-    const uint MAX_USED_THREAD = 64;
+    const uint MAX_USED_THREAD = num_partitions;
     uint BLOCK_IN_GROUP = THREAD_GROUP_SIZE / MAX_USED_THREAD;
     uint blockInGroup = GI / MAX_USED_THREAD;
     uint blockID = g_start_block_id + groupID.x * BLOCK_IN_GROUP + blockInGroup;
@@ -1319,14 +1318,8 @@ void TryMode02CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 
 
     shared_temp[GI].error = 0xFFFFFFFF;
 
-    uint num_partitions;
-    if (0 == g_mode_id)
-        num_partitions = 16;
-    else
-        num_partitions = 64;
-
 	uint step_selector;
-	if (0 == g_mode_id)
+	if (0 == modeId)
 		step_selector = INDEX_PREC_3;
 	else
 		step_selector = INDEX_PREC_2;
@@ -1373,7 +1366,7 @@ void TryMode02CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 
         endPointBackup[2] = endPoint[2];
 
         uint max_p;
-        if (0 == g_mode_id)
+        if (0 == modeId)
         {
             max_p = 64; // changed from 32 to 64
         }
@@ -1399,7 +1392,7 @@ void TryMode02CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 
 			{
 				for ( i = 0; i < 3; i ++ )
 				{
-					if (0 == g_mode_id)
+					if (0 == modeId)
 					{
 						compress_endpoints0( endPoint[i], uint2(p >> (i * 2 + 0), p >> (i * 2 + 1)) & 1 );
 					}
@@ -1471,6 +1464,15 @@ void TryMode02CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 
 			}
         }
 
+#ifdef DEBUG_NEVER_USE_0
+		if (modeId == 0)
+			error = 0xffffffff;
+#endif
+#ifdef DEBUG_NEVER_USE_2
+		if (modeId == 2)
+			error = 0xffffffff;
+#endif
+
         shared_temp[GI].error = error;
         shared_temp[GI].partition = partition;
         shared_temp[GI].rotation = rotation;
@@ -1486,48 +1488,52 @@ void TryMode02CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 
     }
     GroupMemoryBarrierWithGroupSync();
 
-    if (threadInBlock < 32)
-    {
-        if ( shared_temp[GI].error > shared_temp[GI + 32].error )
-        {
-            shared_temp[GI].error = shared_temp[GI + 32].error;
-            shared_temp[GI].partition = shared_temp[GI + 32].partition;
-            shared_temp[GI].rotation = shared_temp[GI + 32].rotation;
-            shared_temp[GI].endPoint_low = shared_temp[GI + 32].endPoint_low;
-            shared_temp[GI].endPoint_high = shared_temp[GI + 32].endPoint_high;
-            shared_temp[GI].endPoint1_low = shared_temp[GI + 32].endPoint1_low;
-            shared_temp[GI].endPoint1_high = shared_temp[GI + 32].endPoint1_high;
-            shared_temp[GI].endPoint2_low = shared_temp[GI + 32].endPoint2_low;
-            shared_temp[GI].endPoint2_high = shared_temp[GI + 32].endPoint2_high;
+	if (modeId == 2)
+	{
+		if (threadInBlock < 32)
+		{
+			if ( shared_temp[GI].error > shared_temp[GI + 32].error )
+			{
+				shared_temp[GI].error = shared_temp[GI + 32].error;
+				shared_temp[GI].partition = shared_temp[GI + 32].partition;
+				shared_temp[GI].rotation = shared_temp[GI + 32].rotation;
+				shared_temp[GI].endPoint_low = shared_temp[GI + 32].endPoint_low;
+				shared_temp[GI].endPoint_high = shared_temp[GI + 32].endPoint_high;
+				shared_temp[GI].endPoint1_low = shared_temp[GI + 32].endPoint1_low;
+				shared_temp[GI].endPoint1_high = shared_temp[GI + 32].endPoint1_high;
+				shared_temp[GI].endPoint2_low = shared_temp[GI + 32].endPoint2_low;
+				shared_temp[GI].endPoint2_high = shared_temp[GI + 32].endPoint2_high;
 #ifdef DEBUG_INCLUDE_DEBUG_DATA
-			shared_temp[GI].debugData = shared_temp[GI + 32].debugData;
+				shared_temp[GI].debugData = shared_temp[GI + 32].debugData;
 #endif
-        }
-    }
+			}
+		}
 #ifdef REF_DEVICE
-    GroupMemoryBarrierWithGroupSync();
+		GroupMemoryBarrierWithGroupSync();
 #endif
-    if (threadInBlock < 16)
-    {
-        if ( shared_temp[GI].error > shared_temp[GI + 16].error )
-        {
-            shared_temp[GI].error = shared_temp[GI + 16].error;
-            shared_temp[GI].partition = shared_temp[GI + 16].partition;
-            shared_temp[GI].rotation = shared_temp[GI + 16].rotation;
-            shared_temp[GI].endPoint_low = shared_temp[GI + 16].endPoint_low;
-            shared_temp[GI].endPoint_high = shared_temp[GI + 16].endPoint_high;
-            shared_temp[GI].endPoint1_low = shared_temp[GI + 16].endPoint1_low;
-            shared_temp[GI].endPoint1_high = shared_temp[GI + 16].endPoint1_high;
-            shared_temp[GI].endPoint2_low = shared_temp[GI + 16].endPoint2_low;
-            shared_temp[GI].endPoint2_high = shared_temp[GI + 16].endPoint2_high;
+		if (threadInBlock < 16)
+		{
+			if ( shared_temp[GI].error > shared_temp[GI + 16].error )
+			{
+				shared_temp[GI].error = shared_temp[GI + 16].error;
+				shared_temp[GI].partition = shared_temp[GI + 16].partition;
+				shared_temp[GI].rotation = shared_temp[GI + 16].rotation;
+				shared_temp[GI].endPoint_low = shared_temp[GI + 16].endPoint_low;
+				shared_temp[GI].endPoint_high = shared_temp[GI + 16].endPoint_high;
+				shared_temp[GI].endPoint1_low = shared_temp[GI + 16].endPoint1_low;
+				shared_temp[GI].endPoint1_high = shared_temp[GI + 16].endPoint1_high;
+				shared_temp[GI].endPoint2_low = shared_temp[GI + 16].endPoint2_low;
+				shared_temp[GI].endPoint2_high = shared_temp[GI + 16].endPoint2_high;
 #ifdef DEBUG_INCLUDE_DEBUG_DATA
-			shared_temp[GI].debugData = shared_temp[GI + 16].debugData;
+				shared_temp[GI].debugData = shared_temp[GI + 16].debugData;
 #endif
-        }
-    }
+			}
+		}
 #ifdef REF_DEVICE
-    GroupMemoryBarrierWithGroupSync();
+		GroupMemoryBarrierWithGroupSync();
 #endif
+	}
+
     if (threadInBlock < 8)
     {
         if ( shared_temp[GI].error > shared_temp[GI + 8].error )
@@ -1615,7 +1621,7 @@ void TryMode02CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 
 #ifdef DEBUG_DUMP_DEBUG_DATA
 			g_OutBuff[dataStart] = shared_temp[GI].debugData;
 #else
-            g_OutBuff[dataStart] = uint4(shared_temp[GI].error, g_mode_id, shared_temp[GI].partition, shared_temp[GI].rotation); // rotation is actually p bit for mode 0. for mode 2, rotation is always 0
+            g_OutBuff[dataStart] = uint4(shared_temp[GI].error, modeId, shared_temp[GI].partition, shared_temp[GI].rotation); // rotation is actually p bit for mode 0. for mode 2, rotation is always 0
 #endif
 			g_OutBuff[dataStart + WORK_DATA_EP_OFFSET_0] = shared_temp[GI].endPoint_low;
 			g_OutBuff[dataStart + WORK_DATA_EP_OFFSET_0 + 1] = shared_temp[GI].endPoint_high;
@@ -1629,6 +1635,19 @@ void TryMode02CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 
 			CopyBlock(blockID);
         }
     }
+}
+
+
+[numthreads( THREAD_GROUP_SIZE, 1, 1 )]
+void TryMode0CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID )
+{
+	TryMode02CS(GI, groupID, 0, 16);
+}
+
+[numthreads( THREAD_GROUP_SIZE, 1, 1 )]
+void TryMode2CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID )
+{
+	TryMode02CS(GI, groupID, 2, 64);
 }
 
 [numthreads( THREAD_GROUP_SIZE, 1, 1 )]

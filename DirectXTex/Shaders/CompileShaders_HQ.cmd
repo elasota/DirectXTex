@@ -19,7 +19,8 @@ set PCFXC=fxc.exe
 :continue
 call :CompileShader BC7Encode_HQ TryMode456CS
 call :CompileShader BC7Encode_HQ TryMode137CS
-call :CompileShader BC7Encode_HQ TryMode02CS
+call :CompileShader BC7Encode_HQ TryMode0CS
+call :CompileShader BC7Encode_HQ TryMode2CS
 call :CompileShader BC7Encode_HQ EncodeBlockCS
 
 echo.

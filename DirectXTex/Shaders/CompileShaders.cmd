@@ -22,6 +22,12 @@ call :CompileShader BC7Encode TryMode137CS
 call :CompileShader BC7Encode TryMode02CS
 call :CompileShader BC7Encode EncodeBlockCS
 
+call :CompileShader BC7Encode_HQ TryMode456CS
+call :CompileShader BC7Encode_HQ TryMode137CS
+call :CompileShader BC7Encode_HQ TryMode0CS
+call :CompileShader BC7Encode_HQ TryMode2CS
+call :CompileShader BC7Encode_HQ EncodeBlockCS
+
 call :CompileShader BC6HEncode TryModeG10CS
 call :CompileShader BC6HEncode TryModeLE10CS
 call :CompileShader BC6HEncode EncodeBlockCS

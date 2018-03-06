@@ -29,7 +29,8 @@ namespace
     #include "Shaders\Compiled\BC6HEncode_TryModeLE10CS.inc"
 
     #include "Shaders\Compiled\BC7Encode_HQ_EncodeBlockCS.inc"
-    #include "Shaders\Compiled\BC7Encode_HQ_TryMode02CS.inc"
+    #include "Shaders\Compiled\BC7Encode_HQ_TryMode0CS.inc"
+    #include "Shaders\Compiled\BC7Encode_HQ_TryMode2CS.inc"
     #include "Shaders\Compiled\BC7Encode_HQ_TryMode137CS.inc"
     #include "Shaders\Compiled\BC7Encode_HQ_TryMode456CS.inc"
 
@@ -189,8 +190,13 @@ HRESULT GPUCompressBC::Initialize(ID3D11Device* pDevice)
     if (FAILED(hr))
         return hr;
 
-    // Modes 0, 2
-    hr = pDevice->CreateComputeShader(BC7Encode_HQ_TryMode02CS, sizeof(BC7Encode_HQ_TryMode02CS), nullptr, m_BC7_hq_tryMode02CS.ReleaseAndGetAddressOf());
+    // Mode 0
+    hr = pDevice->CreateComputeShader(BC7Encode_HQ_TryMode0CS, sizeof(BC7Encode_HQ_TryMode0CS), nullptr, m_BC7_hq_tryMode0CS.ReleaseAndGetAddressOf());
+    if (FAILED(hr))
+        return hr;
+
+    // Mode 2
+    hr = pDevice->CreateComputeShader(BC7Encode_HQ_TryMode2CS, sizeof(BC7Encode_HQ_TryMode2CS), nullptr, m_BC7_hq_tryMode2CS.ReleaseAndGetAddressOf());
     if (FAILED(hr))
         return hr;
 
@@ -560,8 +566,19 @@ HRESULT GPUCompressBC::Compress(const Image& srcImage, const Image& destImage)
                     }
 
                     pSRVs[1] = (i & 1) ? m_err1SRV.Get() : m_err2SRV.Get();
-                    RunComputeShader(pContext, m_hq ? m_BC7_hq_tryMode02CS.Get() : m_BC7_tryMode02CS.Get(), pSRVs, 2, m_constBuffer.Get(),
-                        (i & 1) ? m_err2UAV.Get() : m_err1UAV.Get(), uThreadGroupCount);
+
+                    if (m_hq)
+                    {
+                        if (i == 0)
+                            RunComputeShader(pContext, m_BC7_hq_tryMode0CS.Get(), pSRVs, 2, m_constBuffer.Get(), m_err1UAV.Get(), std::max<UINT>((uThreadGroupCount + 3) / 4, 1));
+                        else //if (i == 2)
+                            RunComputeShader(pContext, m_BC7_hq_tryMode2CS.Get(), pSRVs, 2, m_constBuffer.Get(), m_err2UAV.Get(), uThreadGroupCount);
+                    }
+                    else
+                    {
+                        RunComputeShader(pContext, m_BC7_tryMode02CS.Get(), pSRVs, 2, m_constBuffer.Get(),
+                            (i & 1) ? m_err2UAV.Get() : m_err1UAV.Get(), uThreadGroupCount);
+                    }
                 }
             }
 

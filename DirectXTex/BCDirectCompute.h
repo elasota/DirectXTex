@@ -63,7 +63,8 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_hq_tryMode456CS;
     Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_hq_tryMode137CS;
-    Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_hq_tryMode02CS;
+    Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_hq_tryMode0CS;
+    Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_hq_tryMode2CS;
     Microsoft::WRL::ComPtr<ID3D11ComputeShader>         m_BC7_hq_encodeBlockCS;
 };
 
