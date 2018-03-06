@@ -1832,27 +1832,36 @@ void EncodeBlockCS(uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID)
 		{
 			shared_temp[GI].flipColor = (1 << colorBits) - 1;
 
-			if (index_selector)
-				swap(ep[0].a, ep[1].a);
+			if (mode == 4 || mode == 5)
+			{
+				if (index_selector)
+					swap(ep[0].a, ep[1].a);
+				else
+					swap(ep[0].rgb, ep[1].rgb);
+			}
 			else
-				swap(ep[0].rgb, ep[1].rgb);
-			
+				swap(ep[0], ep[1]);
 		}
 		else
 			shared_temp[GI].flipColor = 0;
-		
-#ifdef DEBUG_ALWAYS_FLIP_ENDPOINTS
-		if (1)
-#else
-		if (shared_temp[threadBase + fixUpIndex].mode & (1 << (alphaBits - 1)))
-#endif
+
+		if (threadInBlock == 0 && (mode == 4 || mode == 5))
 		{
-			shared_temp[GI].flipAlpha = (1 << alphaBits) - 1;
-			
-			if (index_selector)
-				swap(ep[0].rgb, ep[1].rgb);
+#ifdef DEBUG_ALWAYS_FLIP_ENDPOINTS
+			if (1)
+#else
+			if (shared_temp[threadBase + 0].mode & (1 << (alphaBits - 1)))
+#endif
+			{
+				shared_temp[GI].flipAlpha = (1 << alphaBits) - 1;
+				
+				if (index_selector)
+					swap(ep[0].rgb, ep[1].rgb);
+				else
+					swap(ep[0].a, ep[1].a);
+			}
 			else
-				swap(ep[0].a, ep[1].a);
+				shared_temp[GI].flipAlpha = 0;
 		}
 		else
 			shared_temp[GI].flipAlpha = 0;
