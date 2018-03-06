@@ -9,20 +9,20 @@
 
 //#define REF_DEVICE
 
-#define CHAR_LENGTH			8
-#define NCHANNELS			4
-#define	BC7_UNORM			98
-#define MAX_UINT			0xFFFFFFFF
-#define MIN_UINT			0
+#define CHAR_LENGTH         8
+#define NCHANNELS           4
+#define BC7_UNORM           98
+#define MAX_UINT            0xFFFFFFFF
+#define MIN_UINT            0
 
-#define THREAD_GROUP_SIZE	64
-#define BLOCK_SIZE_Y		4
-#define BLOCK_SIZE_X		4
-#define BLOCK_SIZE			(BLOCK_SIZE_Y * BLOCK_SIZE_X)
+#define THREAD_GROUP_SIZE   64
+#define BLOCK_SIZE_Y        4
+#define BLOCK_SIZE_X        4
+#define BLOCK_SIZE          (BLOCK_SIZE_Y * BLOCK_SIZE_X)
 
-#define INDEX_PREC_4		0
-#define INDEX_PREC_3		1
-#define INDEX_PREC_2		2
+#define INDEX_PREC_4        0
+#define INDEX_PREC_3        1
+#define INDEX_PREC_2        2
 
 cbuffer cbCS : register( b0 )
 {
@@ -48,15 +48,15 @@ struct BufferShared
     uint4 endPoint_low_quantized;
     uint4 endPoint_high_quantized;
 #ifdef HQ
-	uint flipColor;
-	uint flipAlpha;
-	uint4 endPoint1_low;
-	uint4 endPoint1_high;
-	uint4 endPoint2_low;
-	uint4 endPoint2_high;
+    uint flipColor;
+    uint flipAlpha;
+    uint4 endPoint1_low;
+    uint4 endPoint1_high;
+    uint4 endPoint2_low;
+    uint4 endPoint2_high;
 #endif
 #ifdef DEBUG_INCLUDE_DEBUG_DATA
-	uint4 debugData;
+    uint4 debugData;
 #endif
 };
 groupshared BufferShared shared_temp[THREAD_GROUP_SIZE];
@@ -267,7 +267,7 @@ void swap(inout uint lhs, inout uint rhs)
 
 uint ComputeError(in uint4 a, in uint4 b)
 {
-	return dot(a.rgb, b.rgb) + g_alpha_weight * a.a*b.a;
+    return dot(a.rgb, b.rgb) + g_alpha_weight * a.a*b.a;
 }
 
 void Ensure_A_Is_Larger( inout uint4 a, inout uint4 b )
@@ -284,29 +284,29 @@ void Ensure_A_Is_Larger( inout uint4 a, inout uint4 b )
 
 uint4 quantize( uint4 color, uint uPrec )
 {
-	return (((color << 8) + color) * ((1 << uPrec) - 1) + 32768) >> 16;
+    return (((color << 8) + color) * ((1 << uPrec) - 1) + 32768) >> 16;
 }
 
 #ifdef HQ
 
 uint4 quantize_p( uint4 color, uint uPrec, uint P )
 {
-	uint p_shift = 1 << (7 - uPrec);
-	uint max_color = 255 - (1 << (7 - uPrec));
-	float max_quantized = float((1 << uPrec) - 1);
+    uint p_shift = 1 << (7 - uPrec);
+    uint max_color = 255 - (1 << (7 - uPrec));
+    float max_quantized = float((1 << uPrec) - 1);
 
-	if (P)
-		color = max(color, p_shift) - p_shift;
+    if (P)
+        color = max(color, p_shift) - p_shift;
 
-	float4 reranged_color = float4(color) * max_quantized / float(max_color);
+    float4 reranged_color = float4(color) * max_quantized / float(max_color);
 
-	return (uint4(clamp(round(reranged_color + 0.5), 0.0, max_quantized)) << 1) | P;
+    return (uint4(clamp(round(reranged_color + 0.5), 0.0, max_quantized)) << 1) | P;
 }
 #else
 
 uint4 quantize_p( uint4 color, uint uPrec, uint P )
 {
-	return (quantize(color, uPrec + 1) & 0xFFFFFFFE) | P;
+    return (quantize(color, uPrec + 1) & 0xFFFFFFFE) | P;
 }
 
 #endif
@@ -319,7 +319,7 @@ uint4 unquantize( uint4 color, uint uPrec )
 
 uint2x4 subtract_parity( uint2x4 endPoint, uint P, uint uPrec )
 {
-	uint p_offset = 1 << (7 - uPrec);
+    uint p_offset = 1 << (7 - uPrec);
 }
 
 uint2x4 compress_endpoints0( inout uint2x4 endPoint, uint2 P )
@@ -346,7 +346,7 @@ uint2x4 compress_endpoints1( inout uint2x4 endPoint, uint2 P )
         quantized[j].a = 0xFF;
 
         endPoint[j].rgb = unquantize(quantized[j].rgbb, 7).rgb;
-	    endPoint[j].a = 0xFF;
+        endPoint[j].a = 0xFF;
 
         quantized[j] <<= 1;
     }
@@ -361,7 +361,7 @@ uint2x4 compress_endpoints2( inout uint2x4 endPoint )
         quantized[j].a = 0xFF;
 
         endPoint[j].rgb = unquantize(quantized[j].rgbb, 5).rgb;
-	    endPoint[j].a = 0xFF;    
+        endPoint[j].a = 0xFF;    
 
         quantized[j] <<= 3;
     }
@@ -416,7 +416,7 @@ uint2x4 compress_endpoints6( inout uint2x4 endPoint, uint2 P )
     uint2x4 quantized;
     [unroll] for ( uint j = 0; j < 2; j ++ )
     {
-		quantized[j] = quantize_p(endPoint[j], 7, P[j]);
+        quantized[j] = quantize_p(endPoint[j], 7, P[j]);
         endPoint[j] = quantized[j];
     }
     return quantized;
@@ -530,7 +530,7 @@ void block_package2( out uint4 block, uint partition, uint threadBase )
             | ( ( get_end_point_l(1).g & 0xF8 ) << 14 ) | ( ( get_end_point_h(1).g & 0xF8 ) << 19 ) 
             | ( ( get_end_point_l(2).g & 0xF8 ) << 24 );
     block.z = ( ( get_end_point_h(2).g & 0xF8 ) >>  3 ) | ( ( get_end_point_l(0).b & 0xF8 ) <<  2 )
-            | ( ( get_end_point_h(0).b & 0xF8 ) <<  7 )	| ( ( get_end_point_l(1).b & 0xF8 ) << 12 )
+            | ( ( get_end_point_h(0).b & 0xF8 ) <<  7 ) | ( ( get_end_point_l(1).b & 0xF8 ) << 12 )
             | ( ( get_end_point_h(1).b & 0xF8 ) << 17 ) | ( ( get_end_point_l(2).b & 0xF8 ) << 22 ) 
             | ( ( get_end_point_h(2).b & 0xF8 ) << 27 );
     block.w = ( ( get_end_point_h(2).b & 0xF8 ) >>  5 ) 
@@ -600,7 +600,7 @@ void block_package5( out uint4 block, uint rotation, uint threadBase )
             | ( ( get_end_point_l(0).r & 0xFE ) <<  7 ) | ( ( get_end_point_h(0).r & 0xFE ) << 14 )
             | ( ( get_end_point_l(0).g & 0xFE ) << 21 ) | ( ( get_end_point_h(0).g & 0xFE ) << 28 );
     block.y = ( ( get_end_point_h(0).g & 0xFE ) >>  4 ) | ( ( get_end_point_l(0).b & 0xFE ) <<  3 )
-            | ( ( get_end_point_h(0).b & 0xFE ) << 10 )	| ( get_end_point_l(0).a << 18 ) | ( get_end_point_h(0).a << 26 );
+            | ( ( get_end_point_h(0).b & 0xFE ) << 10 ) | ( get_end_point_l(0).a << 18 ) | ( get_end_point_h(0).a << 26 );
     block.z = ( get_end_point_h(0).a >>  6 )
             | ( get_color_index(0) <<  2 ) | ( get_color_index(1) <<  3 ) | ( get_color_index(2) <<  5 ) | ( get_color_index(3) <<  7 ) 
             | ( get_color_index(4) <<  9 ) | ( get_color_index(5) << 11 ) | ( get_color_index(6) << 13 ) | ( get_color_index(7) << 15 )
@@ -618,7 +618,7 @@ void block_package6( out uint4 block, uint threadBase )
             | ( ( get_end_point_l(0).r & 0xFE ) <<  6 ) | ( ( get_end_point_h(0).r & 0xFE ) << 13 )
             | ( ( get_end_point_l(0).g & 0xFE ) << 20 ) | ( ( get_end_point_h(0).g & 0xFE ) << 27 );
     block.y = ( ( get_end_point_h(0).g & 0xFE ) >>  5 ) | ( ( get_end_point_l(0).b & 0xFE ) <<  2 )
-            | ( ( get_end_point_h(0).b & 0xFE ) <<  9 )	| ( ( get_end_point_l(0).a & 0xFE ) << 16 )
+            | ( ( get_end_point_h(0).b & 0xFE ) <<  9 ) | ( ( get_end_point_l(0).a & 0xFE ) << 16 )
             | ( ( get_end_point_h(0).a & 0xFE ) << 23 )
             | ( get_end_point_l(0).r & 0x01 ) << 31;
     block.z = ( get_end_point_h(0).r & 0x01 )
@@ -634,9 +634,9 @@ void block_package7( out uint4 block, uint partition, uint threadBase )
             | ( ( get_end_point_l(1).r & 0xF8 ) << 21 ) | ( ( get_end_point_h(1).r & 0xF8 ) << 26 );
     block.y = ( ( get_end_point_h(1).r & 0xF8 ) >>  6 ) | ( ( get_end_point_l(0).g & 0xF8 ) >>  1 )
             | ( ( get_end_point_h(0).g & 0xF8 ) <<  4 ) | ( ( get_end_point_l(1).g & 0xF8 ) <<  9 ) 
-            | ( ( get_end_point_h(1).g & 0xF8 ) << 14 )	| ( ( get_end_point_l(0).b & 0xF8 ) << 19 ) 
+            | ( ( get_end_point_h(1).g & 0xF8 ) << 14 ) | ( ( get_end_point_l(0).b & 0xF8 ) << 19 ) 
             | ( ( get_end_point_h(0).b & 0xF8 ) << 24 );
-    block.z = ( ( get_end_point_l(1).b & 0xF8 ) >>  3 )	| ( ( get_end_point_h(1).b & 0xF8 ) <<  2 ) 
+    block.z = ( ( get_end_point_l(1).b & 0xF8 ) >>  3 ) | ( ( get_end_point_h(1).b & 0xF8 ) <<  2 ) 
             | ( ( get_end_point_l(0).a & 0xF8 ) <<  7 ) | ( ( get_end_point_h(0).a & 0xF8 ) << 12 ) 
             | ( ( get_end_point_l(1).a & 0xF8 ) << 17 ) | ( ( get_end_point_h(1).a & 0xF8 ) << 22 ) 
             | ( ( get_end_point_l(0).r & 0x04 ) << 28 ) | ( ( get_end_point_h(0).r & 0x04 ) << 29 );
