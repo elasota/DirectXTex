@@ -1067,6 +1067,11 @@ void TryMode137CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
             endPoint[0] = endPointBackup[0];
             endPoint[1] = endPointBackup[1];
 
+			uint p_error[2] = { MAX_UINT, MAX_UINT };
+			uint2x4 p_bestEndPoint[2];
+			p_bestEndPoint[0] = uint2x4(uint4(0, 0, 0, 0), uint4(0, 0, 0, 0));
+			p_bestEndPoint[1] = uint2x4(uint4(0, 0, 0, 0), uint4(0, 0, 0, 0));
+
 			for (uint refinePass = 0; refinePass <= NUM_REFINE_PASSES; refinePass++)
 			{
 				for ( int i = 0; i < 2; i ++ ) // loop through 2 subsets
@@ -1093,7 +1098,8 @@ void TryMode137CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
 				InitEndpointRefiner(er[0], 1 << BitsForPrec(step_selector));
 				InitEndpointRefiner(er[1], 1 << BitsForPrec(step_selector));
 
-				uint p_error = 0;            
+				uint passError[2] = { 0, 0 };
+					
 				for ( i = 0; i < 16; i ++ )
 				{
 					uint subset_index = (bits >> i) & 0x01;
@@ -1115,22 +1121,38 @@ void TryMode137CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
 
 					Ensure_A_Is_Larger( pixel_r, pixel );
 					pixel_r -= pixel;
-					p_error += ComputeError(pixel_r, pixel_r);
+					
+					uint pixel_error = ComputeError(pixel_r, pixel_r);
+
+					if (subset_index == 1)
+						passError[1] += pixel_error;
+					else
+						passError[0] += pixel_error;
 				}
 
-				if (p_error < error)
+				for ( i = 0; i < 2; i++ )
 				{
-					error = p_error;
-					rotation = p;
-					bestEndPoint[0] = endPoint[0];
-					bestEndPoint[1] = endPoint[1];
+					if (passError[i] < p_error[i])
+					{
+						p_bestEndPoint[i] = endPoint[i];
+						p_error[i] = passError[i];
+					}
 				}
-				
+
 				if (refinePass != NUM_REFINE_PASSES)
 				{
 					GetRefinedEndpoints(er[0], endPoint[0]);
 					GetRefinedEndpoints(er[1], endPoint[1]);
 				}
+			}
+
+			uint totalError = p_error[0] + p_error[1];
+			if (totalError < error)
+			{
+				error = totalError;
+				rotation = p;
+				bestEndPoint[0] = p_bestEndPoint[0];
+				bestEndPoint[1] = p_bestEndPoint[1];
 			}
         }
 
@@ -1387,7 +1409,13 @@ void TryMode02CS( uint GI, uint3 groupID, uint modeId, uint num_partitions ) // 
             endPoint[0] = endPointBackup[0];
             endPoint[1] = endPointBackup[1];
             endPoint[2] = endPointBackup[2];
-			
+
+			uint p_error[3] = { MAX_UINT, MAX_UINT, MAX_UINT };
+			uint2x4 p_bestEndPoint[3];
+			p_bestEndPoint[0] = uint2x4(uint4(0,0,0,0), uint4(0,0,0,0));
+			p_bestEndPoint[1] = uint2x4(uint4(0,0,0,0), uint4(0,0,0,0));
+			p_bestEndPoint[2] = uint2x4(uint4(0,0,0,0), uint4(0,0,0,0));
+
 			for (uint refinePass = 0; refinePass <= NUM_REFINE_PASSES; refinePass++)
 			{
 				for ( i = 0; i < 3; i ++ )
@@ -1412,7 +1440,7 @@ void TryMode02CS( uint GI, uint3 groupID, uint modeId, uint num_partitions ) // 
 				InitEndpointRefiner(er[1], 1 << numIndexBits);
 				InitEndpointRefiner(er[2], 1 << numIndexBits);
 
-				uint p_error = 0;
+				uint passError[3] = { 0, 0, 0 };
 				for ( i = 0; i < 16; i ++ )
 				{
 					uint4 pixel = shared_temp[threadBase + i].pixel;
@@ -1443,26 +1471,44 @@ void TryMode02CS( uint GI, uint3 groupID, uint modeId, uint num_partitions ) // 
 
 					Ensure_A_Is_Larger( pixel_r, pixel );
 					pixel_r -= pixel;
-					p_error += ComputeError(pixel_r, pixel_r);
-				}
-
-				if (p_error < error)
-				{
-					error = p_error;
-					rotation = p;    // Borrow rotation for p
-					bestEndPoint[0] = endPoint[0];
-					bestEndPoint[1] = endPoint[1];
-					bestEndPoint[2] = endPoint[2];
+					uint pixelError = ComputeError(pixel_r, pixel_r);
+					
+					if ( subset_index == 2 )
+						passError[2] += pixelError;
+					else if ( subset_index == 1 )
+						passError[1] += pixelError;
+					else
+						passError[0] += pixelError;
 				}
 				
+				for ( i = 0; i < 3; i++ )
+				{
+					if ( passError[i] < p_error[i] )
+					{
+						p_bestEndPoint[i] = endPoint[i];
+						p_error[i] = passError[i];
+					}
+				}
+
 				if (refinePass != NUM_REFINE_PASSES)
 				{
 					GetRefinedEndpoints(er[0], endPoint[0]);
 					GetRefinedEndpoints(er[1], endPoint[1]);
 					GetRefinedEndpoints(er[2], endPoint[2]);
 				}
+
 			}
-        }
+
+			uint totalError = p_error[0] + p_error[1] + p_error[2];
+			if (totalError < error)
+			{
+				error = totalError;
+				rotation = p;    // Borrow rotation for p
+				bestEndPoint[0] = p_bestEndPoint[0];
+				bestEndPoint[1] = p_bestEndPoint[1];
+				bestEndPoint[2] = p_bestEndPoint[2];
+			}
+		}
 
 #ifdef DEBUG_NEVER_USE_0
 		if (modeId == 0)
