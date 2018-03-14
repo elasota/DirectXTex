@@ -300,7 +300,7 @@ uint4 quantize_p( uint4 color, uint uPrec, uint P )
 
     float4 reranged_color = float4(color) * max_quantized / float(max_color);
 
-    return (uint4(clamp(round(reranged_color + 0.5), 0.0, max_quantized)) << 1) | P;
+    return (uint4(clamp(round(reranged_color), 0.0, max_quantized)) << 1) | P;
 }
 #else
 
