@@ -652,8 +652,10 @@ namespace
 
     void PrintLogo()
     {
-        wprintf(L"Microsoft (R) DirectX Texture Converter (DirectXTex version)\n");
-        wprintf(L"Copyright (C) Microsoft Corp. All rights reserved.\n");
+        wprintf(L"Convection Texture Tools\n");
+        wprintf(L"Copyright (C) 2018 Eric Lasota.\n");
+        wprintf(L"Based on Microsoft (R) DirectX Texture Converter.\n");
+        wprintf(L"See LICENSE.txt for more information.\n");
 #ifdef _DEBUG
         wprintf(L"*** Debug build ***\n");
 #endif
