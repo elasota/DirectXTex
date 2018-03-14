@@ -27,3 +27,5 @@ x64
 /wiki
 *.inc
 *.pdb
+*.csv
+*.dds
