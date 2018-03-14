@@ -1,5 +1,5 @@
 /*
-	DirectXTex BC7 HQ Mod
+	Convection Texture Tools
 	Copyright 2018 Eric Lasota
 
 	Permission is hereby granted, free of charge, to any person obtaining
