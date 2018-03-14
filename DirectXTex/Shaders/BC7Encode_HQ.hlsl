@@ -113,6 +113,7 @@
 
 #define POWER_ITERATION_COUNT 8
 
+#define NUM_TWEAKS 4
 #define NUM_REFINE_PASSES 2
 
 #define WORK_DATA_STRIDE 7
@@ -149,6 +150,29 @@ struct EndpointSelectorRGBA
 	float min_dist;
 	float max_dist;
 };
+
+struct UnfinishedEndpointsRGBA
+{
+	float2x4 ep;
+};
+
+struct UnfinishedEndpointsRGB
+{
+	float2x3 ep;
+};
+
+float2 ComputeTweakFactors( uint tweak, uint bits )
+{
+	uint totalUnits = (1 << bits) - 1;
+	uint minOutsideUnits = ((tweak >> 1) & 1);
+	uint maxOutsideUnits = (tweak & 1);
+	uint insideUnits = totalUnits - minOutsideUnits - maxOutsideUnits;
+
+	float2 result;
+	result.x = -float(minOutsideUnits) / float(insideUnits);
+	result.y = float(maxOutsideUnits) / float(insideUnits) + 1.0;
+	return result;
+}
 
 void ContributeEndpointSelector( inout EndpointSelectorRGBA es, int step, float4 pt, float weight )
 {
@@ -235,11 +259,23 @@ void InitEndpointSelectorPass( inout EndpointSelectorRGBA es, int step )
 	}
 }
 
-void GetEndpoints( EndpointSelectorRGBA es, out uint2x4 ep )
+void GetEndpoints( EndpointSelectorRGBA es, out UnfinishedEndpointsRGBA ep )
 {
+	ep.ep[0] = es.ctr + es.axis * es.min_dist;
+	ep.ep[1] = es.axis * (es.max_dist - es.min_dist);
+}
+
+uint2x4 FinishEndpoints( UnfinishedEndpointsRGBA ep, uint tweak, uint bits )
+{
+	uint2x4 result;
+
+	float2 tf = ComputeTweakFactors(tweak, bits);
+
 	// TODO: Clip to the edge
-	ep[0] = uint4(clamp(round(es.ctr + es.axis * es.min_dist), 0.0, 255.0));
-	ep[1] = uint4(clamp(round(es.ctr + es.axis * es.max_dist), 0.0, 255.0));
+	result[0] = uint4(clamp(round(ep.ep[0] + ep.ep[1]*tf.x), 0.0, 255.0));
+	result[1] = uint4(clamp(round(ep.ep[0] + ep.ep[1]*tf.y), 0.0, 255.0));
+
+	return result;
 }
 
 struct EndpointSelectorRGB
@@ -332,11 +368,23 @@ void InitEndpointSelectorPass( inout EndpointSelectorRGB es, int step )
 	}
 }
 
-void GetEndpoints( EndpointSelectorRGB es, out uint2x4 ep )
+void GetEndpoints( EndpointSelectorRGB es, out UnfinishedEndpointsRGB ep )
 {
+	ep.ep[0] = es.ctr + es.axis * es.min_dist;
+	ep.ep[1] = es.axis * (es.max_dist - es.min_dist);
+}
+
+uint2x4 FinishEndpoints( UnfinishedEndpointsRGB ep, uint tweak, uint bits )
+{
+	uint2x4 result;
+
+	float2 tf = ComputeTweakFactors(tweak, bits);
+
 	// TODO: Clip to the edge
-	ep[0] = uint4(clamp(round(es.ctr + es.axis * es.min_dist), 0.0, 255.0), 255);
-	ep[1] = uint4(clamp(round(es.ctr + es.axis * es.max_dist), 0.0, 255.0), 255);
+	result[0] = uint4(clamp(round(ep.ep[0] + ep.ep[1]*tf.x), 0.0, 255.0), 255);
+	result[1] = uint4(clamp(round(ep.ep[0] + ep.ep[1]*tf.y), 0.0, 255.0), 255);
+
+	return result;
 }
 
 uint BitsForPrec(uint prec)
@@ -646,15 +694,9 @@ void TryMode456CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
 		for( int pxi = 0; pxi < 16; ++pxi )
 			ContributeEndpointSelector(es, ep_pass, float4(max(rotationMask, shared_temp[threadBase + pxi].pixel)), 1.0);
 	}
-	
-    uint2x4 endPoint;
-	GetEndpoints(es, endPoint);
 
 	// Insert pre-rotated alpha back into the endpoints
 	uint4 invRotationMask = 255 - rotationMask;
-	
-	endPoint[0] = min(shared_temp[threadBase].endPoint_low, rotationMask) + min(endPoint[0], invRotationMask);
-	endPoint[1] = min(shared_temp[threadBase].endPoint_high, rotationMask) + min(endPoint[1], invRotationMask);
 
     uint error = 0xFFFFFFFF;
     uint mode = 0;
@@ -689,179 +731,191 @@ void TryMode456CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
 
     uint color_index;
     uint alpha_index;
-    if (threadInBlock < 12) // Try mode 4 5 in threads 0..11
-    {
-        // mode 4 5 have component rotation		
-        if (rotation == 1)
-        {
-            endPoint[0].ra = endPoint[0].ar;
-            endPoint[1].ra = endPoint[1].ar;
-        }
-        else if (rotation == 2)
-        {
-            endPoint[0].ga = endPoint[0].ag;
-            endPoint[1].ga = endPoint[1].ag;
-        }
-        else if (rotation == 3)
-        {
-            endPoint[0].ba = endPoint[0].ab;
-            endPoint[1].ba = endPoint[1].ab;
-        }
+	
+	UnfinishedEndpointsRGBA ufep;
+	GetEndpoints(es, ufep);
 
-		if (threadInBlock < 8)  // try mode 4 in threads 0..7
+	for (uint tweak = 0; tweak < NUM_TWEAKS; tweak++)
+	{
+		uint2x4 endPoint = FinishEndpoints(ufep, tweak, BitsForPrec(indexPrec.x));
+	
+		endPoint[0] = min(shared_temp[threadBase].endPoint_low, rotationMask) + min(endPoint[0], invRotationMask);
+		endPoint[1] = min(shared_temp[threadBase].endPoint_high, rotationMask) + min(endPoint[1], invRotationMask);
+
+		if (threadInBlock < 12) // Try mode 4 5 in threads 0..11
 		{
-			// mode 4 thread distribution
-			// Thread           0   1   2   3   4   5   6   7
-			// Rotation         0   0   1   1   2   2   3   3
-			// Index selector   0   1   0   1   0   1   0   1
-
-			mode = 4;
-		}
-		else                    // try mode 5 in threads 8..11
-		{
-			// mode 5 thread distribution
-			// Thread    8  9  10  11
-			// Rotation  0  1   2   3
-
-			mode = 5;
-		}
-
-		for ( uint refinePass = 0; refinePass <= NUM_REFINE_PASSES; refinePass++ )
-		{
-			if (mode == 4)
-				compress_endpoints4( endPoint );
-			else // if(mode == 5)
-				compress_endpoints5( endPoint );
-
-			IndexSelectorA alphaIndexSelector;
-			IndexSelectorRGB rgbIndexSelector;
-
-			InitIndexSelector(rgbIndexSelector, endPoint, indexPrec.x);
-			InitIndexSelector(alphaIndexSelector, endPoint, indexPrec.y);
-
-			EndpointRefiner er;
-			InitEndpointRefiner(er, 1 << BitsForPrec(indexPrec.x));
-
-			error = 0;
-			for ( uint i = 0; i < 16; i ++ )
+			// mode 4 5 have component rotation		
+			if (rotation == 1)
 			{
-				uint4 pixel = shared_temp[threadBase + i].pixel;
-				if (1 == rotation)
-				{
-					pixel.ra = pixel.ar;
-				}
-				else if (2 == rotation)
-				{
-					pixel.ga = pixel.ag;
-				}
-				else if (3 == rotation)
-				{
-					pixel.ba = pixel.ab;
-				}
-
-				color_index = SelectIndex(rgbIndexSelector, pixel);
-				alpha_index = SelectIndex(alphaIndexSelector, pixel);
-
-				ContributeEndpointRefiner(er, uint4(pixel.rgb, 255), color_index, 1.0);
-
-				uint4 pixel_r;
-				pixel_r.rgb = ReconstructIndex(rgbIndexSelector, color_index);
-				pixel_r.a = ReconstructIndex(alphaIndexSelector, alpha_index);
-
-				Ensure_A_Is_Larger( pixel_r, pixel );
-				pixel_r -= pixel;
-				if (1 == rotation)
-				{
-					pixel_r.ra = pixel_r.ar;
-				}
-				else if (2 == rotation)
-				{
-					pixel_r.ga = pixel_r.ag;
-				}
-				else if (3 == rotation)
-				{
-					pixel_r.ba = pixel_r.ab;
-				}
-
-				error += ComputeError(pixel_r, pixel_r);
+				endPoint[0].ra = endPoint[0].ar;
+				endPoint[1].ra = endPoint[1].ar;
 			}
+			else if (rotation == 2)
+			{
+				endPoint[0].ga = endPoint[0].ag;
+				endPoint[1].ga = endPoint[1].ag;
+			}
+			else if (rotation == 3)
+			{
+				endPoint[0].ba = endPoint[0].ab;
+				endPoint[1].ba = endPoint[1].ab;
+			}
+
+			if (threadInBlock < 8)  // try mode 4 in threads 0..7
+			{
+				// mode 4 thread distribution
+				// Thread           0   1   2   3   4   5   6   7
+				// Rotation         0   0   1   1   2   2   3   3
+				// Index selector   0   1   0   1   0   1   0   1
+
+				mode = 4;
+			}
+			else                    // try mode 5 in threads 8..11
+			{
+				// mode 5 thread distribution
+				// Thread    8  9  10  11
+				// Rotation  0  1   2   3
+
+				mode = 5;
+			}
+
+			for ( uint refinePass = 0; refinePass <= NUM_REFINE_PASSES; refinePass++ )
+			{
+				if (mode == 4)
+					compress_endpoints4( endPoint );
+				else // if(mode == 5)
+					compress_endpoints5( endPoint );
+
+				IndexSelectorA alphaIndexSelector;
+				IndexSelectorRGB rgbIndexSelector;
+
+				InitIndexSelector(rgbIndexSelector, endPoint, indexPrec.x);
+				InitIndexSelector(alphaIndexSelector, endPoint, indexPrec.y);
+
+				EndpointRefiner er;
+				InitEndpointRefiner(er, 1 << BitsForPrec(indexPrec.x));
+
+				error = 0;
+				for ( uint i = 0; i < 16; i ++ )
+				{
+					uint4 pixel = shared_temp[threadBase + i].pixel;
+					if (1 == rotation)
+					{
+						pixel.ra = pixel.ar;
+					}
+					else if (2 == rotation)
+					{
+						pixel.ga = pixel.ag;
+					}
+					else if (3 == rotation)
+					{
+						pixel.ba = pixel.ab;
+					}
+
+					color_index = SelectIndex(rgbIndexSelector, pixel);
+					alpha_index = SelectIndex(alphaIndexSelector, pixel);
+
+					ContributeEndpointRefiner(er, uint4(pixel.rgb, 255), color_index, 1.0);
+
+					uint4 pixel_r;
+					pixel_r.rgb = ReconstructIndex(rgbIndexSelector, color_index);
+					pixel_r.a = ReconstructIndex(alphaIndexSelector, alpha_index);
+
+					Ensure_A_Is_Larger( pixel_r, pixel );
+					pixel_r -= pixel;
+					if (1 == rotation)
+					{
+						pixel_r.ra = pixel_r.ar;
+					}
+					else if (2 == rotation)
+					{
+						pixel_r.ga = pixel_r.ag;
+					}
+					else if (3 == rotation)
+					{
+						pixel_r.ba = pixel_r.ab;
+					}
+
+					error += ComputeError(pixel_r, pixel_r);
+				}
 
 #ifdef DEBUG_ALWAYS_REFINE
-			bestError = 0xffffffff;
+				bestError = 0xffffffff;
 #endif
-			if (error < bestError)
-			{
-				bestError = error;
-				bestEndPoint = endPoint;
-			}
+				if (error < bestError)
+				{
+					bestError = error;
+					bestEndPoint = endPoint;
+				}
 
-			if (refinePass != NUM_REFINE_PASSES)
-			{
-				uint2x4 refinedEP;
-				GetRefinedEndpoints(er, refinedEP);
-				endPoint[0].rgb = refinedEP[0].rgb;
-				endPoint[1].rgb = refinedEP[1].rgb;
+				if (refinePass != NUM_REFINE_PASSES)
+				{
+					uint2x4 refinedEP;
+					GetRefinedEndpoints(er, refinedEP);
+					endPoint[0].rgb = refinedEP[0].rgb;
+					endPoint[1].rgb = refinedEP[1].rgb;
+				}
 			}
-		}
 
 #ifdef DEBUG_FORCE_ROTATION
-		if (rotation != DEBUG_FORCE_ROTATION)
-			error = 0xffffffff;
+			if (rotation != DEBUG_FORCE_ROTATION)
+				error = 0xffffffff;
 #endif
-    }
-    else if (threadInBlock < 16) // Try mode 6 in threads 12..15, since in mode 4 5 6, only mode 6 has p bit
-    {
-        uint p = threadInBlock - 12;
-
-		for ( uint refinePass = 0; refinePass <= NUM_REFINE_PASSES; refinePass++ )
+		}
+		else if (threadInBlock < 16) // Try mode 6 in threads 12..15, since in mode 4 5 6, only mode 6 has p bit
 		{
-			EndpointRefiner er;
-			InitEndpointRefiner(er, 16);  //InitEndpointRefiner(er, 1 << BitsForPrec(INDEX_PREC_4));
+			uint p = threadInBlock - 12;
 
-			compress_endpoints6( endPoint, uint2(p >> 0, p >> 1) & 1 );
-
-			IndexSelectorRGBA indexSelector;
-			InitIndexSelector(indexSelector, endPoint, INDEX_PREC_4);
-
-			error = 0;
-			for ( uint i = 0; i < 16; i ++ )
+			for ( uint refinePass = 0; refinePass <= NUM_REFINE_PASSES; refinePass++ )
 			{
-				uint4 pixel = shared_temp[threadBase + i].pixel;
+				EndpointRefiner er;
+				InitEndpointRefiner(er, 16);  //InitEndpointRefiner(er, 1 << BitsForPrec(INDEX_PREC_4));
 
-				uint color_index = SelectIndex(indexSelector, pixel);
+				compress_endpoints6( endPoint, uint2(p >> 0, p >> 1) & 1 );
+
+				IndexSelectorRGBA indexSelector;
+				InitIndexSelector(indexSelector, endPoint, INDEX_PREC_4);
+
+				error = 0;
+				for ( uint i = 0; i < 16; i ++ )
+				{
+					uint4 pixel = shared_temp[threadBase + i].pixel;
+
+					uint color_index = SelectIndex(indexSelector, pixel);
+					
+					ContributeEndpointRefiner(er, pixel, color_index, 1.0);
+
+					uint4 pixel_r = ReconstructIndex(indexSelector, color_index);
 				
-				ContributeEndpointRefiner(er, pixel, color_index, 1.0);
-
-				uint4 pixel_r = ReconstructIndex(indexSelector, color_index);
-			
-				Ensure_A_Is_Larger( pixel_r, pixel );
-				pixel_r -= pixel;
-				error += ComputeError(pixel_r, pixel_r);
-			}
+					Ensure_A_Is_Larger( pixel_r, pixel );
+					pixel_r -= pixel;
+					error += ComputeError(pixel_r, pixel_r);
+				}
 
 #ifdef DEBUG_ALWAYS_REFINE
-			bestError = 0xffffffff;
+				bestError = 0xffffffff;
 #endif
-			if (error < bestError)
-			{
-				bestError = error;
-				bestEndPoint = endPoint;
+				if (error < bestError)
+				{
+					bestError = error;
+					bestEndPoint = endPoint;
+				}
+
+				endPoint[0] = uint4(0, 0, 0, 0);
+				endPoint[1] = uint4(0, 0, 0, 0);
+				if (refinePass != NUM_REFINE_PASSES)
+				{
+					uint2x4 refinedEP;
+					GetRefinedEndpoints(er, refinedEP);
+					endPoint[0].rgb = refinedEP[0].rgb;
+					endPoint[1].rgb = refinedEP[1].rgb;
+				}
 			}
 
-			endPoint[0] = uint4(0, 0, 0, 0);
-			endPoint[1] = uint4(0, 0, 0, 0);
-			if (refinePass != NUM_REFINE_PASSES)
-			{
-				uint2x4 refinedEP;
-				GetRefinedEndpoints(er, refinedEP);
-				endPoint[0].rgb = refinedEP[0].rgb;
-				endPoint[1].rgb = refinedEP[1].rgb;
-			}
+			mode = 6;
+			rotation = p;    // Borrow rotation for p
 		}
-
-        mode = 6;
-        rotation = p;    // Borrow rotation for p
-    }
+	}
 
 #ifdef DEBUG_NEVER_USE_4
 	if (mode == 4)
@@ -1007,8 +1061,8 @@ void TryMode137CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
 	else
 		step_selector = INDEX_PREC_3;  // mode 1 has 3 bit index
 
-    uint2x4 endPoint[2];        // endPoint[0..1 for subset id][0..1 for low and high in the subset]
-    uint2x4 endPointBackup[2];
+    UnfinishedEndpointsRGBA ufep[2];        // endPoint[0..1 for subset id][0..1 for low and high in the subset]
+
     uint color_index;
     if (threadInBlock < 64)
     {
@@ -1038,11 +1092,8 @@ void TryMode137CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
 			}
 		}
 	
-		GetEndpoints(es[0], endPoint[0]);
-		GetEndpoints(es[1], endPoint[1]);
-
-        endPointBackup[0] = endPoint[0];
-        endPointBackup[1] = endPoint[1];
+		GetEndpoints(es[0], ufep[0]);
+		GetEndpoints(es[1], ufep[1]);
 
         uint max_p;
         if (1 == g_mode_id)
@@ -1064,85 +1115,90 @@ void TryMode137CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
 
         for ( uint p = 0; p < max_p; p ++ )
         {
-            endPoint[0] = endPointBackup[0];
-            endPoint[1] = endPointBackup[1];
-
 			uint p_error[2] = { MAX_UINT, MAX_UINT };
 			uint2x4 p_bestEndPoint[2];
 			p_bestEndPoint[0] = uint2x4(uint4(0, 0, 0, 0), uint4(0, 0, 0, 0));
 			p_bestEndPoint[1] = uint2x4(uint4(0, 0, 0, 0), uint4(0, 0, 0, 0));
 
-			for (uint refinePass = 0; refinePass <= NUM_REFINE_PASSES; refinePass++)
+			for ( uint tweak = 0; tweak < NUM_TWEAKS; tweak++ )
 			{
-				for ( int i = 0; i < 2; i ++ ) // loop through 2 subsets
+				uint2x4 endPoint[2];
+
+				endPoint[0] = FinishEndpoints(ufep[0], tweak, BitsForPrec(step_selector));
+				endPoint[1] = FinishEndpoints(ufep[1], tweak, BitsForPrec(step_selector));
+
+				for (uint refinePass = 0; refinePass <= NUM_REFINE_PASSES; refinePass++)
 				{
-					if (g_mode_id == 1)
+					for ( int i = 0; i < 2; i ++ ) // loop through 2 subsets
 					{
-						compress_endpoints1( endPoint[i], (p >> i) & 1 );
+						if (g_mode_id == 1)
+						{
+							compress_endpoints1( endPoint[i], (p >> i) & 1 );
+						}
+						else if (g_mode_id == 3)
+						{
+							compress_endpoints3( endPoint[i], uint2(p >> (i * 2 + 0), p >> (i * 2 + 1)) & 1 );
+						}
+						else if (g_mode_id == 7)
+						{
+							compress_endpoints7( endPoint[i], uint2(p >> (i * 2 + 0), p >> (i * 2 + 1)) & 1 );
+						}
 					}
-					else if (g_mode_id == 3)
+				
+					IndexSelectorRGBA indexSelectors[2];
+					for ( i = 0; i < 2; ++i )
+						InitIndexSelector(indexSelectors[i], endPoint[i], step_selector);
+
+					EndpointRefiner er[2];
+					InitEndpointRefiner(er[0], 1 << BitsForPrec(step_selector));
+					InitEndpointRefiner(er[1], 1 << BitsForPrec(step_selector));
+
+					uint passError[2] = { 0, 0 };
+						
+					for ( i = 0; i < 16; i ++ )
 					{
-						compress_endpoints3( endPoint[i], uint2(p >> (i * 2 + 0), p >> (i * 2 + 1)) & 1 );
+						uint subset_index = (bits >> i) & 0x01;
+						uint4 pixel_r;
+						uint4 pixel = shared_temp[threadBase + i].pixel;
+
+						if (subset_index == 1)
+						{
+							color_index = SelectIndex(indexSelectors[1], shared_temp[threadBase + i].pixel);
+							pixel_r = ReconstructIndex(indexSelectors[1], color_index);
+							ContributeEndpointRefiner(er[1], pixel, color_index, 1.0);
+						}
+						else
+						{
+							color_index = SelectIndex(indexSelectors[0], shared_temp[threadBase + i].pixel);
+							pixel_r = ReconstructIndex(indexSelectors[0], color_index);
+							ContributeEndpointRefiner(er[0], pixel, color_index, 1.0);
+						}
+
+						Ensure_A_Is_Larger( pixel_r, pixel );
+						pixel_r -= pixel;
+						
+						uint pixel_error = ComputeError(pixel_r, pixel_r);
+
+						if (subset_index == 1)
+							passError[1] += pixel_error;
+						else
+							passError[0] += pixel_error;
 					}
-					else if (g_mode_id == 7)
+
+					for ( i = 0; i < 2; i++ )
 					{
-						compress_endpoints7( endPoint[i], uint2(p >> (i * 2 + 0), p >> (i * 2 + 1)) & 1 );
+						if (passError[i] < p_error[i])
+						{
+							p_bestEndPoint[i] = endPoint[i];
+							p_error[i] = passError[i];
+						}
 					}
-				}
-			
-				IndexSelectorRGBA indexSelectors[2];
-				for ( i = 0; i < 2; ++i )
-					InitIndexSelector(indexSelectors[i], endPoint[i], step_selector);
 
-				EndpointRefiner er[2];
-				InitEndpointRefiner(er[0], 1 << BitsForPrec(step_selector));
-				InitEndpointRefiner(er[1], 1 << BitsForPrec(step_selector));
-
-				uint passError[2] = { 0, 0 };
-					
-				for ( i = 0; i < 16; i ++ )
-				{
-					uint subset_index = (bits >> i) & 0x01;
-					uint4 pixel_r;
-					uint4 pixel = shared_temp[threadBase + i].pixel;
-
-					if (subset_index == 1)
+					if (refinePass != NUM_REFINE_PASSES)
 					{
-						color_index = SelectIndex(indexSelectors[1], shared_temp[threadBase + i].pixel);
-						pixel_r = ReconstructIndex(indexSelectors[1], color_index);
-						ContributeEndpointRefiner(er[1], pixel, color_index, 1.0);
+						GetRefinedEndpoints(er[0], endPoint[0]);
+						GetRefinedEndpoints(er[1], endPoint[1]);
 					}
-					else
-					{
-						color_index = SelectIndex(indexSelectors[0], shared_temp[threadBase + i].pixel);
-						pixel_r = ReconstructIndex(indexSelectors[0], color_index);
-						ContributeEndpointRefiner(er[0], pixel, color_index, 1.0);
-					}
-
-					Ensure_A_Is_Larger( pixel_r, pixel );
-					pixel_r -= pixel;
-					
-					uint pixel_error = ComputeError(pixel_r, pixel_r);
-
-					if (subset_index == 1)
-						passError[1] += pixel_error;
-					else
-						passError[0] += pixel_error;
-				}
-
-				for ( i = 0; i < 2; i++ )
-				{
-					if (passError[i] < p_error[i])
-					{
-						p_bestEndPoint[i] = endPoint[i];
-						p_error[i] = passError[i];
-					}
-				}
-
-				if (refinePass != NUM_REFINE_PASSES)
-				{
-					GetRefinedEndpoints(er[0], endPoint[0]);
-					GetRefinedEndpoints(er[1], endPoint[1]);
 				}
 			}
 
@@ -1348,8 +1404,8 @@ void TryMode02CS( uint GI, uint3 groupID, uint modeId, uint num_partitions ) // 
 
 	uint numIndexBits = BitsForPrec(step_selector);
 
-    uint2x4 endPoint[3];        // endPoint[0..1 for subset id][0..1 for low and high in the subset]
-    uint2x4 endPointBackup[3];
+    UnfinishedEndpointsRGB ufep[3];        // endPoint[0..1 for subset id][0..1 for low and high in the subset]
+
 	uint4 debugData = uint4(0, 0, 0, 0);
     if (threadInBlock < num_partitions)
     {
@@ -1381,11 +1437,7 @@ void TryMode02CS( uint GI, uint3 groupID, uint modeId, uint num_partitions ) // 
 		}
 
 		for ( uint epri = 0; epri < 3; epri ++ )
-			GetEndpoints(es[epri], endPoint[epri]);
-
-        endPointBackup[0] = endPoint[0];
-        endPointBackup[1] = endPoint[1];
-        endPointBackup[2] = endPoint[2];
+			GetEndpoints(es[epri], ufep[epri]);
 
         uint max_p;
         if (0 == modeId)
@@ -1406,97 +1458,100 @@ void TryMode02CS( uint GI, uint3 groupID, uint modeId, uint num_partitions ) // 
 
         for ( uint p = 0; p < max_p; p ++ )
         {
-            endPoint[0] = endPointBackup[0];
-            endPoint[1] = endPointBackup[1];
-            endPoint[2] = endPointBackup[2];
-
 			uint p_error[3] = { MAX_UINT, MAX_UINT, MAX_UINT };
 			uint2x4 p_bestEndPoint[3];
 			p_bestEndPoint[0] = uint2x4(uint4(0,0,0,0), uint4(0,0,0,0));
 			p_bestEndPoint[1] = uint2x4(uint4(0,0,0,0), uint4(0,0,0,0));
 			p_bestEndPoint[2] = uint2x4(uint4(0,0,0,0), uint4(0,0,0,0));
 
-			for (uint refinePass = 0; refinePass <= NUM_REFINE_PASSES; refinePass++)
+			for ( uint tweak = 0; tweak < NUM_TWEAKS; tweak++ )
 			{
-				for ( i = 0; i < 3; i ++ )
+				uint2x4 endPoint[3];
+				endPoint[0] = FinishEndpoints(ufep[0], tweak, numIndexBits);
+				endPoint[1] = FinishEndpoints(ufep[1], tweak, numIndexBits);
+				endPoint[2] = FinishEndpoints(ufep[2], tweak, numIndexBits);
+
+				for (uint refinePass = 0; refinePass <= NUM_REFINE_PASSES; refinePass++)
 				{
-					if (0 == modeId)
+					for ( i = 0; i < 3; i ++ )
 					{
-						compress_endpoints0( endPoint[i], uint2(p >> (i * 2 + 0), p >> (i * 2 + 1)) & 1 );
-					}
-					else
-					{
-						compress_endpoints2( endPoint[i] );
-					}
-				}
-
-				IndexSelectorRGB indexSelectors[3];
-				
-				for ( i = 0; i < 3; i ++ )
-					InitIndexSelector(indexSelectors[i], endPoint[i], step_selector);
-
-				EndpointRefiner er[3];
-				InitEndpointRefiner(er[0], 1 << numIndexBits);
-				InitEndpointRefiner(er[1], 1 << numIndexBits);
-				InitEndpointRefiner(er[2], 1 << numIndexBits);
-
-				uint passError[3] = { 0, 0, 0 };
-				for ( i = 0; i < 16; i ++ )
-				{
-					uint4 pixel = shared_temp[threadBase + i].pixel;
-
-					uint4 pixel_r;
-					uint color_index;
-					uint subset_index = ( bits2 >> ( i * 2 ) ) & 0x03;
-					if ( subset_index == 2 )
-					{
-						color_index = SelectIndex(indexSelectors[2], pixel);
-						pixel_r.rgb = ReconstructIndex(indexSelectors[2], color_index);
-						ContributeEndpointRefiner(er[2], uint4(pixel.rgb, 255), color_index, 1.0);
-					}
-					else if ( subset_index == 1 )
-					{
-						color_index = SelectIndex(indexSelectors[1], pixel);
-						pixel_r.rgb = ReconstructIndex(indexSelectors[1], color_index);
-						ContributeEndpointRefiner(er[1], uint4(pixel.rgb, 255), color_index, 1.0);
-					}
-					else
-					{
-						color_index = SelectIndex(indexSelectors[0], pixel);
-						pixel_r.rgb = ReconstructIndex(indexSelectors[0], color_index);
-						ContributeEndpointRefiner(er[0], uint4(pixel.rgb, 255), color_index, 1.0);
+						if (0 == modeId)
+						{
+							compress_endpoints0( endPoint[i], uint2(p >> (i * 2 + 0), p >> (i * 2 + 1)) & 1 );
+						}
+						else
+						{
+							compress_endpoints2( endPoint[i] );
+						}
 					}
 
-					pixel_r.a = 255;
-
-					Ensure_A_Is_Larger( pixel_r, pixel );
-					pixel_r -= pixel;
-					uint pixelError = ComputeError(pixel_r, pixel_r);
+					IndexSelectorRGB indexSelectors[3];
 					
-					if ( subset_index == 2 )
-						passError[2] += pixelError;
-					else if ( subset_index == 1 )
-						passError[1] += pixelError;
-					else
-						passError[0] += pixelError;
-				}
-				
-				for ( i = 0; i < 3; i++ )
-				{
-					if ( passError[i] < p_error[i] )
+					for ( i = 0; i < 3; i ++ )
+						InitIndexSelector(indexSelectors[i], endPoint[i], step_selector);
+
+					EndpointRefiner er[3];
+					InitEndpointRefiner(er[0], 1 << numIndexBits);
+					InitEndpointRefiner(er[1], 1 << numIndexBits);
+					InitEndpointRefiner(er[2], 1 << numIndexBits);
+
+					uint passError[3] = { 0, 0, 0 };
+					for ( i = 0; i < 16; i ++ )
 					{
-						p_bestEndPoint[i] = endPoint[i];
-						p_error[i] = passError[i];
+						uint4 pixel = shared_temp[threadBase + i].pixel;
+
+						uint4 pixel_r;
+						uint color_index;
+						uint subset_index = ( bits2 >> ( i * 2 ) ) & 0x03;
+						if ( subset_index == 2 )
+						{
+							color_index = SelectIndex(indexSelectors[2], pixel);
+							pixel_r.rgb = ReconstructIndex(indexSelectors[2], color_index);
+							ContributeEndpointRefiner(er[2], uint4(pixel.rgb, 255), color_index, 1.0);
+						}
+						else if ( subset_index == 1 )
+						{
+							color_index = SelectIndex(indexSelectors[1], pixel);
+							pixel_r.rgb = ReconstructIndex(indexSelectors[1], color_index);
+							ContributeEndpointRefiner(er[1], uint4(pixel.rgb, 255), color_index, 1.0);
+						}
+						else
+						{
+							color_index = SelectIndex(indexSelectors[0], pixel);
+							pixel_r.rgb = ReconstructIndex(indexSelectors[0], color_index);
+							ContributeEndpointRefiner(er[0], uint4(pixel.rgb, 255), color_index, 1.0);
+						}
+
+						pixel_r.a = 255;
+
+						Ensure_A_Is_Larger( pixel_r, pixel );
+						pixel_r -= pixel;
+						uint pixelError = ComputeError(pixel_r, pixel_r);
+						
+						if ( subset_index == 2 )
+							passError[2] += pixelError;
+						else if ( subset_index == 1 )
+							passError[1] += pixelError;
+						else
+							passError[0] += pixelError;
+					}
+					
+					for ( i = 0; i < 3; i++ )
+					{
+						if ( passError[i] < p_error[i] )
+						{
+							p_bestEndPoint[i] = endPoint[i];
+							p_error[i] = passError[i];
+						}
+					}
+
+					if (refinePass != NUM_REFINE_PASSES)
+					{
+						GetRefinedEndpoints(er[0], endPoint[0]);
+						GetRefinedEndpoints(er[1], endPoint[1]);
+						GetRefinedEndpoints(er[2], endPoint[2]);
 					}
 				}
-
-				if (refinePass != NUM_REFINE_PASSES)
-				{
-					GetRefinedEndpoints(er[0], endPoint[0]);
-					GetRefinedEndpoints(er[1], endPoint[1]);
-					GetRefinedEndpoints(er[2], endPoint[2]);
-				}
-
 			}
 
 			uint totalError = p_error[0] + p_error[1] + p_error[2];
