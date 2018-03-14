@@ -1442,7 +1442,7 @@ void TryMode02CS( uint GI, uint3 groupID, uint modeId, uint num_partitions ) // 
         uint max_p;
         if (0 == modeId)
         {
-            max_p = 64; // changed from 32 to 64
+            max_p = 4;
         }
         else
         {
@@ -1450,20 +1450,15 @@ void TryMode02CS( uint GI, uint3 groupID, uint modeId, uint num_partitions ) // 
         }
 
         uint rotation = 0;
-        uint error = MAX_UINT;
 		uint2x4 bestEndPoint[3];
 
 		for ( int i = 0; i < 3; i++ )
 			bestEndPoint[i][0] = bestEndPoint[i][1] = uint4(0, 0, 0, 255);
 
+		uint epError[3] = { MAX_UINT, MAX_UINT, MAX_UINT };
+
         for ( uint p = 0; p < max_p; p ++ )
         {
-			uint p_error[3] = { MAX_UINT, MAX_UINT, MAX_UINT };
-			uint2x4 p_bestEndPoint[3];
-			p_bestEndPoint[0] = uint2x4(uint4(0,0,0,0), uint4(0,0,0,0));
-			p_bestEndPoint[1] = uint2x4(uint4(0,0,0,0), uint4(0,0,0,0));
-			p_bestEndPoint[2] = uint2x4(uint4(0,0,0,0), uint4(0,0,0,0));
-
 			for ( uint tweak = 0; tweak < NUM_TWEAKS; tweak++ )
 			{
 				uint2x4 endPoint[3];
@@ -1477,7 +1472,7 @@ void TryMode02CS( uint GI, uint3 groupID, uint modeId, uint num_partitions ) // 
 					{
 						if (0 == modeId)
 						{
-							compress_endpoints0( endPoint[i], uint2(p >> (i * 2 + 0), p >> (i * 2 + 1)) & 1 );
+							compress_endpoints0( endPoint[i], uint2(p, p >> 1) & 1 );
 						}
 						else
 						{
@@ -1538,10 +1533,10 @@ void TryMode02CS( uint GI, uint3 groupID, uint modeId, uint num_partitions ) // 
 					
 					for ( i = 0; i < 3; i++ )
 					{
-						if ( passError[i] < p_error[i] )
+						if ( passError[i] < epError[i] )
 						{
-							p_bestEndPoint[i] = endPoint[i];
-							p_error[i] = passError[i];
+							bestEndPoint[i] = endPoint[i];
+							epError[i] = passError[i];
 						}
 					}
 
@@ -1553,17 +1548,9 @@ void TryMode02CS( uint GI, uint3 groupID, uint modeId, uint num_partitions ) // 
 					}
 				}
 			}
-
-			uint totalError = p_error[0] + p_error[1] + p_error[2];
-			if (totalError < error)
-			{
-				error = totalError;
-				rotation = p;    // Borrow rotation for p
-				bestEndPoint[0] = p_bestEndPoint[0];
-				bestEndPoint[1] = p_bestEndPoint[1];
-				bestEndPoint[2] = p_bestEndPoint[2];
-			}
 		}
+
+		uint error = epError[0] + epError[1] + epError[2];
 
 #ifdef DEBUG_NEVER_USE_0
 		if (modeId == 0)
