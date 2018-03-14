@@ -1099,27 +1099,22 @@ void TryMode137CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
         if (1 == g_mode_id)
         {
             // in mode 1, there is only one p bit per subset
-            max_p = 4;
+            max_p = 2;
         }
         else
         {
             // in mode 3 7, there are two p bits per subset, one for each end point
-            max_p = 16;
+            max_p = 4;
         }
 
         uint rotation = 0;
-        uint error = MAX_UINT;
+		uint epError[2] = { MAX_UINT, MAX_UINT };
 		uint2x4 bestEndPoint[2];
 		bestEndPoint[0] = uint2x4(uint4(0, 0, 0, 0), uint4(0, 0, 0, 0));
 		bestEndPoint[1] = uint2x4(uint4(0, 0, 0, 0), uint4(0, 0, 0, 0));
 
         for ( uint p = 0; p < max_p; p ++ )
         {
-			uint p_error[2] = { MAX_UINT, MAX_UINT };
-			uint2x4 p_bestEndPoint[2];
-			p_bestEndPoint[0] = uint2x4(uint4(0, 0, 0, 0), uint4(0, 0, 0, 0));
-			p_bestEndPoint[1] = uint2x4(uint4(0, 0, 0, 0), uint4(0, 0, 0, 0));
-
 			for ( uint tweak = 0; tweak < NUM_TWEAKS; tweak++ )
 			{
 				uint2x4 endPoint[2];
@@ -1133,15 +1128,15 @@ void TryMode137CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
 					{
 						if (g_mode_id == 1)
 						{
-							compress_endpoints1( endPoint[i], (p >> i) & 1 );
+							compress_endpoints1( endPoint[i], p );
 						}
 						else if (g_mode_id == 3)
 						{
-							compress_endpoints3( endPoint[i], uint2(p >> (i * 2 + 0), p >> (i * 2 + 1)) & 1 );
+							compress_endpoints3( endPoint[i], uint2(p, p >> 1) & 1 );
 						}
 						else if (g_mode_id == 7)
 						{
-							compress_endpoints7( endPoint[i], uint2(p >> (i * 2 + 0), p >> (i * 2 + 1)) & 1 );
+							compress_endpoints7( endPoint[i], uint2(p, p >> 1) & 1 );
 						}
 					}
 				
@@ -1187,10 +1182,10 @@ void TryMode137CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
 
 					for ( i = 0; i < 2; i++ )
 					{
-						if (passError[i] < p_error[i])
+						if (passError[i] < epError[i])
 						{
-							p_bestEndPoint[i] = endPoint[i];
-							p_error[i] = passError[i];
+							bestEndPoint[i] = endPoint[i];
+							epError[i] = passError[i];
 						}
 					}
 
@@ -1201,16 +1196,9 @@ void TryMode137CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
 					}
 				}
 			}
-
-			uint totalError = p_error[0] + p_error[1];
-			if (totalError < error)
-			{
-				error = totalError;
-				rotation = p;
-				bestEndPoint[0] = p_bestEndPoint[0];
-				bestEndPoint[1] = p_bestEndPoint[1];
-			}
         }
+
+		uint error = epError[0] + epError[1];
 
 #ifdef DEBUG_NEVER_USE_1
 		if (g_mode_id == 1)
