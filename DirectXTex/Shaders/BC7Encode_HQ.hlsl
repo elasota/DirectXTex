@@ -52,24 +52,6 @@
     CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, 
     TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
     SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-    **************************************************************************
-
-    Contains portions of FasTC
-
-    Copyright 2016 The University of North Carolina at Chapel Hill
-
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
 */
 
 
@@ -520,76 +502,74 @@ uint4 ReconstructIndex(IndexSelectorRGBA is, uint index)
     return ( ( 64 - weight ) * is.endPoint[0] + weight * is.endPoint[1] + 32 ) >> 6;
 }
 
-#define MAX_BUCKETS 16
+// Solve for a, b where v = a*t + b
+// This allows endpoints to be mapped to where T=0 and T=1
+// Least squares from totals:
+// a = (tv - t*v/w)/(tt - t*t/w)
+// b = (v - a*t)/w
 
 struct EndpointRefiner
 {
-    float4 total;
-    float weightTotal;
-
-    float asq;
-    float bsq;
-    float ab;
-    float4 ax;
-    float4 bx;
+    float4 tv;
+    float4 v;
+    float tt;
+    float t;
+    float w;
 
     float maxIndex;
 };
 
 void InitEndpointRefiner( out EndpointRefiner er, uint numIndexes )
 {
-    er.total = float4(0.0, 0.0, 0.0, 0.0);
-    er.weightTotal = 1.0;
+    er.tv = float4(0.0, 0.0, 0.0, 0.0);
+    er.v = float4(0.0, 0.0, 0.0, 0.0);
+    er.tt = 0.0;
+    er.t = 0.0;
+    er.w = 0.0;
+
     er.maxIndex = numIndexes - 1;
-    er.asq = 0.0;
-    er.bsq = 0.0;
-    er.ab = 0.0;
-    er.ax = float4(0.0, 0.0, 0.0, 0.0);
-    er.bx = float4(0.0, 0.0, 0.0, 0.0);
 }
 
 void ContributeEndpointRefiner(inout EndpointRefiner er, uint4 pixel, uint index, float weight)
 {
-    float4 x = float4(pixel);
+    float4 v = float4(pixel);
+    float t = float(index) / er.maxIndex;
 
-    float b = float(index) / er.maxIndex;
-    float a = 1.0 - b;
-
-    er.asq += a * a * weight;
-    er.bsq += b * b * weight;
-    er.ab += a * b * weight;
-
-    er.ax += x * a * weight;
-    er.bx += x * b * weight;
-
-    er.total += x;
-    er.weightTotal += weight;       
+    er.tv += weight * t * v;
+    er.v += weight * v;
+    er.tt += weight * t * t;
+    er.t += weight * t;
+    er.w += weight;
 }
 
 void GetRefinedEndpoints(EndpointRefiner er, out uint2x4 endPoint)
 {
-    float4 p1;
-    float4 p2;
-    float f = (er.asq * er.bsq - er.ab * er.ab);
-
-    if (f == 0.0)
+    // a = (tv - t*v/w)/(tt - t*t/w)
+    // b = (v - a*t)/w
+    float4 p1, p2;
+    if (er.w == 0.0)
     {
-        if (er.weightTotal == 0.0)
-            p1 = p2 = float4(0.0, 0.0, 0.0, 0.0);
-        else
-            p1 = p2 = er.total / er.weightTotal;
+        endPoint = uint2x4(uint4(0,0,0,0), uint4(0,0,0,0));
     }
     else
     {
-        p1 = (er.ax * er.bsq - er.bx * er.ab) / f;
-        p2 = (er.bx * er.asq - er.ax * er.ab) / f;
+        float adenom = (er.tt - er.t*er.t/er.w);
+        if (adenom == 0.0)
+            p1 = p2 = er.v / er.w;
+        else
+        {
+            float4 a = (er.tv - er.t*er.v/er.w)/adenom;
+            float4 b = (er.v - a*er.t)/er.w;
+            p1 = b;
+            p2 = a + b;
+        }
+
+        p1 = clamp(p1, 0.0, 255.0);
+        p2 = clamp(p2, 0.0, 255.0);
+
+        endPoint[0] = uint4(round(p1));
+        endPoint[1] = uint4(round(p2));
     }
-
-    p1 = clamp(p1, 0.0, 255.0);
-    p2 = clamp(p2, 0.0, 255.0);
-
-    endPoint[0] = uint4(round(p1));
-    endPoint[1] = uint4(round(p2));
 }
 
 [numthreads( THREAD_GROUP_SIZE, 1, 1 )]
