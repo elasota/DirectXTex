@@ -248,6 +248,18 @@ namespace analyze
             return resultPath;
         }
 
+        static string CompressWithISPC(string path, bool run)
+        {
+            string fastcPath = "x64\\Release\\ISPCTextureCompressor.exe";
+
+            string resultPath = path.Replace(".png", "_ispc.dds");
+
+            if (run)
+                RunProcess(fastcPath, path + " " + resultPath);
+
+            return resultPath;
+        }
+
         static void Main(string[] args)
         {
             bool runCompressonator = false;
@@ -256,6 +268,7 @@ namespace analyze
             bool runDX = false;
             bool runDXHQ = true;
             bool runFasTC = false;
+            bool runISPC = false;
             bool runConversions = false;
 
             string[] testImages = {
@@ -339,6 +352,9 @@ namespace analyze
                 string fastcPath = CompressWithFasTC(path, runFasTC);
                 fileResults.Add(Benchmark(fastcPath, path, i));
 
+                string ispcPath = CompressWithISPC(path, runISPC);
+                fileResults.Add(Benchmark(ispcPath, path, i));
+
                 lock (results)
                 {
                     results.Add(path, fileResults);
@@ -366,9 +382,9 @@ namespace analyze
 
             using (System.IO.StreamWriter writer = new System.IO.StreamWriter("benchmark.csv"))
             {
-                writer.WriteLine(",nvtt,,,,compressonator,,,,compressonator_hq,,,,dxhq,,,,dxcpu,,,,dxgpu,,,,fastc,,,,");
+                writer.WriteLine(",nvtt,,,,compressonator,,,,compressonator_hq,,,,dxhq,,,,dxcpu,,,,dxgpu,,,,fastc,,,,ispc_slow,,,,");
                 writer.Write("filename");
-                for (int i = 0; i < 7; i++)
+                for (int i = 0; i < 8; i++)
                     writer.Write(",error,worst,x,y");
                 writer.WriteLine();
 

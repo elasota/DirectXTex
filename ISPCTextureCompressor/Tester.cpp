@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#include "FasTC/BPTCCompressor.h"
+#include "ispc_texcomp.h"
 #include "../DirectXTex/DirectXTex.h"
 
 #include "../stb_image/stb_image.h"
@@ -20,12 +20,16 @@ int main(int argc, const char** argv)
     size_t compressedSize = w * h;
     unsigned char* compressedBlocks = new unsigned char[compressedSize];
 
-    FasTC::CompressionJob compressionJob(FasTC::eCompressionFormat_BPTC, imageData, compressedBlocks, w, h);
+    bc7_enc_settings settings;
+    GetProfile_alpha_slow(&settings);
 
-    BPTCC::CompressionSettings settings;
-    settings.m_ErrorMetric = BPTCC::eErrorMetric_Uniform;
+    rgba_surface surface;
+    surface.width = w;
+    surface.height = h;
+    surface.stride = w * 4;
+    surface.ptr = imageData;
 
-    BPTCC::Compress(compressionJob, settings);
+    CompressBlocksBC7(&surface, compressedBlocks, &settings);
 
     stbi_image_free(imageData);
 
