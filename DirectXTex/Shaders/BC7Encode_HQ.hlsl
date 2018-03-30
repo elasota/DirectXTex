@@ -369,6 +369,21 @@ uint2x4 FinishEndpoints( UnfinishedEndpointsRGB ep, uint tweak, uint bits )
     return result;
 }
 
+uint2 TweakAlpha( uint2 original, uint tweak, uint bits )
+{
+    uint2 result;
+
+    float2 tf = ComputeTweakFactors(tweak, bits);
+
+    float base = float(original.x);
+    float offs = float(original.y) - base;
+
+    result.x = uint(clamp(round(base + offs*tf.x), 0.0, 255.0));
+    result.y = uint(clamp(round(base + offs*tf.y), 0.0, 255.0));
+
+    return result;
+}
+
 uint BitsForPrec(uint prec)
 {
     if(prec == 0)
@@ -642,27 +657,36 @@ void TryMode456CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
 
     uint4 rotationMask = float4(0.0, 0.0, 0.0, 0.0);
 
+    uint2 untweakedAlpha = uint2(0, 0);
+
     if (threadInBlock < 12) // Try mode 4 5 in threads 0..11
     {
+        uint4 blockLow = shared_temp[GI].endPoint_low;
+        uint4 blockHigh = shared_temp[GI].endPoint_high;
+
         if ((threadInBlock < 2) || (8 == threadInBlock))       // rotation = 0 in thread 0, 1
         {
             rotation = 0;
             rotationMask = uint4(0, 0, 0, 255);
+            untweakedAlpha = uint2(blockLow.a, blockHigh.a);
         }
         else if ((threadInBlock < 4) || (9 == threadInBlock))  // rotation = 1 in thread 2, 3
         {
             rotation = 1;
             rotationMask = uint4(255, 0, 0, 0);
+            untweakedAlpha = uint2(blockLow.r, blockHigh.r);
         }
         else if ((threadInBlock < 6) || (10 == threadInBlock)) // rotation = 2 in thread 4, 5
         {
             rotation = 2;
             rotationMask = uint4(0, 255, 0, 0);
+            untweakedAlpha = uint2(blockLow.g, blockHigh.g);
         }
         else if ((threadInBlock < 8) || (11 == threadInBlock)) // rotation = 3 in thread 6, 7
         {
             rotation = 3;
             rotationMask = uint4(0, 0, 255, 0);
+            untweakedAlpha = uint2(blockLow.b, blockHigh.b);
         }
     }
     
@@ -707,6 +731,7 @@ void TryMode456CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
     uint4 debugData = uint4(0,0,0,0);
 
     uint bestError = 0xFFFFFFFF;
+    uint bestErrorA = 0xFFFFFFFF;
     uint2x4 bestEndPoint = uint2x4(uint4(0, 0, 0, 0), uint4(0, 0, 0, 0));
 
     uint color_index;
@@ -718,28 +743,29 @@ void TryMode456CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
     for (uint tweak = 0; tweak < NUM_TWEAKS; tweak++)
     {
         uint2x4 endPoint = FinishEndpoints(ufep, tweak, BitsForPrec(indexPrec.x));
-    
-        endPoint[0] = min(shared_temp[threadBase].endPoint_low, rotationMask) + min(endPoint[0], invRotationMask);
-        endPoint[1] = min(shared_temp[threadBase].endPoint_high, rotationMask) + min(endPoint[1], invRotationMask);
 
         if (threadInBlock < 12) // Try mode 4 5 in threads 0..11
         {
             // mode 4 5 have component rotation     
             if (rotation == 1)
             {
-                endPoint[0].ra = endPoint[0].ar;
-                endPoint[1].ra = endPoint[1].ar;
+                endPoint[0].r = endPoint[0].a;
+                endPoint[1].r = endPoint[1].a;
             }
             else if (rotation == 2)
             {
-                endPoint[0].ga = endPoint[0].ag;
-                endPoint[1].ga = endPoint[1].ag;
+                endPoint[0].g = endPoint[0].a;
+                endPoint[1].g = endPoint[1].a;
             }
             else if (rotation == 3)
             {
-                endPoint[0].ba = endPoint[0].ab;
-                endPoint[1].ba = endPoint[1].ab;
+                endPoint[0].b = endPoint[0].a;
+                endPoint[1].b = endPoint[1].a;
             }
+
+            uint2 tweakedAlpha = TweakAlpha(untweakedAlpha, tweak, BitsForPrec(indexPrec.y));
+            endPoint[0].a = tweakedAlpha.x;
+            endPoint[1].a = tweakedAlpha.y;
 
             if (threadInBlock < 8)  // try mode 4 in threads 0..7
             {
@@ -772,10 +798,13 @@ void TryMode456CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
                 InitIndexSelector(rgbIndexSelector, endPoint, indexPrec.x);
                 InitIndexSelector(alphaIndexSelector, endPoint, indexPrec.y);
 
-                EndpointRefiner er;
-                InitEndpointRefiner(er, 1 << BitsForPrec(indexPrec.x));
+                EndpointRefiner erRGB;
+                EndpointRefiner erA;
+                InitEndpointRefiner(erRGB, 1 << BitsForPrec(indexPrec.x));
+                InitEndpointRefiner(erA, 1 << BitsForPrec(indexPrec.y));
 
-                error = 0;
+                uint error = 0;
+                uint errorA = 0;
                 for ( uint i = 0; i < 16; i ++ )
                 {
                     uint4 pixel = shared_temp[threadBase + i].pixel;
@@ -795,7 +824,8 @@ void TryMode456CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
                     color_index = SelectIndex(rgbIndexSelector, pixel);
                     alpha_index = SelectIndex(alphaIndexSelector, pixel);
 
-                    ContributeEndpointRefiner(er, uint4(pixel.rgb, 255), color_index, 1.0);
+                    ContributeEndpointRefiner(erRGB, uint4(pixel.rgb, 255), color_index, 1.0);
+                    ContributeEndpointRefiner(erA, uint4(0, 0, 0, pixel.a), alpha_index, 1.0);
 
                     uint4 pixel_r;
                     pixel_r.rgb = ReconstructIndex(rgbIndexSelector, color_index);
@@ -816,7 +846,10 @@ void TryMode456CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
                         pixel_r.ba = pixel_r.ab;
                     }
 
-                    error += ComputeError(pixel_r, pixel_r);
+                    uint4 pixel_r_rgb = min(invRotationMask, pixel_r);
+                    uint4 pixel_r_a = min(rotationMask, pixel_r);
+                    error += ComputeError(pixel_r_rgb, pixel_r_rgb);
+                    errorA += ComputeError(pixel_r_a, pixel_r_a);
                 }
 
 #ifdef DEBUG_ALWAYS_REFINE
@@ -825,25 +858,38 @@ void TryMode456CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
                 if (error < bestError)
                 {
                     bestError = error;
-                    bestEndPoint = endPoint;
+                    bestEndPoint[0].rgb = endPoint[0].rgb;
+                    bestEndPoint[1].rgb = endPoint[1].rgb;
+                }
+
+                if (errorA < bestErrorA)
+                {
+                    bestErrorA = errorA;
+                    bestEndPoint[0].a = endPoint[0].a;
+                    bestEndPoint[1].a = endPoint[1].a;
                 }
 
                 if (refinePass != NUM_REFINE_PASSES)
                 {
                     uint2x4 refinedEP;
-                    GetRefinedEndpoints(er, refinedEP);
+                    GetRefinedEndpoints(erRGB, refinedEP);
                     endPoint[0].rgb = refinedEP[0].rgb;
                     endPoint[1].rgb = refinedEP[1].rgb;
+                    GetRefinedEndpoints(erA, refinedEP);
+                    endPoint[0].a = refinedEP[0].a;
+                    endPoint[1].a = refinedEP[1].a;
                 }
             }
 
 #ifdef DEBUG_FORCE_ROTATION
             if (rotation != DEBUG_FORCE_ROTATION)
-                error = 0xffffffff;
+                bestError = 0xffffffff;
 #endif
         }
         else if (threadInBlock < 16) // Try mode 6 in threads 12..15, since in mode 4 5 6, only mode 6 has p bit
         {
+            bestErrorA = 0;
+
             uint p = threadInBlock - 12;
 
             for ( uint refinePass = 0; refinePass <= NUM_REFINE_PASSES; refinePass++ )
@@ -896,6 +942,8 @@ void TryMode456CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
             rotation = p;    // Borrow rotation for p
         }
     }
+    
+    bestError += bestErrorA;
 
 #ifdef DEBUG_NEVER_USE_4
     if (mode == 4)
