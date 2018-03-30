@@ -433,6 +433,16 @@
     <None Include="Shaders\Compiled\BC6HEncode_TryModeLE10CS.pdb" />
     <None Include="Shaders\Compiled\BC7Encode_EncodeBlockCS.inc" />
     <None Include="Shaders\Compiled\BC7Encode_EncodeBlockCS.pdb" />
+    <None Include="Shaders\Compiled\BC7Encode_HQ_EncodeBlockCS.inc" />
+    <None Include="Shaders\Compiled\BC7Encode_HQ_EncodeBlockCS.pdb" />
+    <None Include="Shaders\Compiled\BC7Encode_HQ_TryMode0CS.inc" />
+    <None Include="Shaders\Compiled\BC7Encode_HQ_TryMode0CS.pdb" />
+    <None Include="Shaders\Compiled\BC7Encode_HQ_TryMode137CS.inc" />
+    <None Include="Shaders\Compiled\BC7Encode_HQ_TryMode137CS.pdb" />
+    <None Include="Shaders\Compiled\BC7Encode_HQ_TryMode2CS.inc" />
+    <None Include="Shaders\Compiled\BC7Encode_HQ_TryMode2CS.pdb" />
+    <None Include="Shaders\Compiled\BC7Encode_HQ_TryMode456CS.inc" />
+    <None Include="Shaders\Compiled\BC7Encode_HQ_TryMode456CS.pdb" />
     <None Include="Shaders\Compiled\BC7Encode_TryMode02CS.inc" />
     <None Include="Shaders\Compiled\BC7Encode_TryMode02CS.pdb" />
     <None Include="Shaders\Compiled\BC7Encode_TryMode137CS.inc" />
@@ -442,6 +452,9 @@
     <None Include="Shaders\CompileShaders.cmd" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Shaders\BC7Encode_HQ.hlsl">
+      <FileType>Document</FileType>
+    </None>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
