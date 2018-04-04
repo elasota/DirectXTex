@@ -1,3 +1,59 @@
+/*
+    Convection Texture Tools
+    Copyright 2018 Eric Lasota
+
+    Permission is hereby granted, free of charge, to any person obtaining
+    a copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to
+    permit persons to whom the Software is furnished to do so, subject
+    to the following conditions:
+
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+    IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+    CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+    TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+    SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+    -------------------------------------------------------------------------------------
+
+    Based on DirectX Texture Library
+    Copyright (c) Microsoft Corporation. All rights reserved.
+    Licensed under the MIT License.
+
+    http://go.microsoft.com/fwlink/?LinkId=248926
+
+    -------------------------------------------------------------------------------------
+
+    Contains portions of libsquish
+
+    Copyright (c) 2006 Simon Brown                          si@sjbrown.co.uk
+
+    Permission is hereby granted, free of charge, to any person obtaining
+    a copy of this software and associated documentation files (the 
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to 
+    permit persons to whom the Software is furnished to do so, subject to 
+    the following conditions:
+
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF 
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+    IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY 
+    CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, 
+    TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
+    SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 #include "directxtexp.h"
 
 #include "BC.h"
@@ -38,14 +94,14 @@ namespace
     BC7ModeInfo g_modes[] =
     {
         { PBitMode_PerEndpoint, AlphaMode_None, 4, 0, 4, 3, 3, 0, false },     // 0
-    { PBitMode_PerSubset, AlphaMode_None, 6, 0, 6, 2, 3, 0, false },       // 1
-    { PBitMode_None, AlphaMode_None, 5, 0, 6, 3, 2, 0, false },            // 2
-    { PBitMode_PerEndpoint, AlphaMode_None, 7, 0, 6, 2, 2, 0, false },     // 3 (Mode reference has an error, P-bit is really per-endpoint)
+        { PBitMode_PerSubset, AlphaMode_None, 6, 0, 6, 2, 3, 0, false },       // 1
+        { PBitMode_None, AlphaMode_None, 5, 0, 6, 3, 2, 0, false },            // 2
+        { PBitMode_PerEndpoint, AlphaMode_None, 7, 0, 6, 2, 2, 0, false },     // 3 (Mode reference has an error, P-bit is really per-endpoint)
 
-    { PBitMode_None, AlphaMode_Separate, 5, 6, 0, 1, 2, 3, true },         // 4
-    { PBitMode_None, AlphaMode_Separate, 7, 8, 0, 1, 2, 2, false },        // 5
-    { PBitMode_PerEndpoint, AlphaMode_Combined, 7, 7, 0, 1, 4, 0, false }, // 6
-    { PBitMode_PerEndpoint, AlphaMode_Combined, 5, 5, 6, 2, 2, 0, false }  // 7
+        { PBitMode_None, AlphaMode_Separate, 5, 6, 0, 1, 2, 3, true },         // 4
+        { PBitMode_None, AlphaMode_Separate, 7, 8, 0, 1, 2, 2, false },        // 5
+        { PBitMode_PerEndpoint, AlphaMode_Combined, 7, 7, 0, 1, 4, 0, false }, // 6
+        { PBitMode_PerEndpoint, AlphaMode_Combined, 5, 5, 6, 2, 2, 0, false }  // 7
     };
 
     static uint16_t g_partitionMap[64] =
@@ -112,22 +168,22 @@ namespace
     static int g_fixupIndexes3[64][2] =
     {
         { 3,15 },{ 3, 8 },{ 15, 8 },{ 15, 3 },
-    { 8,15 },{ 3,15 },{ 15, 3 },{ 15, 8 },
-    { 8,15 },{ 8,15 },{ 6,15 },{ 6,15 },
-    { 6,15 },{ 5,15 },{ 3,15 },{ 3, 8 },
-    { 3,15 },{ 3, 8 },{ 8,15 },{ 15, 3 },
-    { 3,15 },{ 3, 8 },{ 6,15 },{ 10, 8 },
-    { 5, 3 },{ 8,15 },{ 8, 6 },{ 6,10 },
-    { 8,15 },{ 5,15 },{ 15,10 },{ 15, 8 },
+        { 8,15 },{ 3,15 },{ 15, 3 },{ 15, 8 },
+        { 8,15 },{ 8,15 },{ 6,15 },{ 6,15 },
+        { 6,15 },{ 5,15 },{ 3,15 },{ 3, 8 },
+        { 3,15 },{ 3, 8 },{ 8,15 },{ 15, 3 },
+        { 3,15 },{ 3, 8 },{ 6,15 },{ 10, 8 },
+        { 5, 3 },{ 8,15 },{ 8, 6 },{ 6,10 },
+        { 8,15 },{ 5,15 },{ 15,10 },{ 15, 8 },
 
-    { 8,15 },{ 15, 3 },{ 3,15 },{ 5,10 },
-    { 6,10 },{ 10, 8 },{ 8, 9 },{ 15,10 },
-    { 15, 6 },{ 3,15 },{ 15, 8 },{ 5,15 },
-    { 15, 3 },{ 15, 6 },{ 15, 6 },{ 15, 8 },
-    { 3,15 },{ 15, 3 },{ 5,15 },{ 5,15 },
-    { 5,15 },{ 8,15 },{ 5,15 },{ 10,15 },
-    { 5,15 },{ 10,15 },{ 8,15 },{ 13,15 },
-    { 15, 3 },{ 12,15 },{ 3,15 },{ 3, 8 },
+        { 8,15 },{ 15, 3 },{ 3,15 },{ 5,10 },
+        { 6,10 },{ 10, 8 },{ 8, 9 },{ 15,10 },
+        { 15, 6 },{ 3,15 },{ 15, 8 },{ 5,15 },
+        { 15, 3 },{ 15, 6 },{ 15, 6 },{ 15, 8 },
+        { 3,15 },{ 15, 3 },{ 5,15 },{ 5,15 },
+        { 5,15 },{ 8,15 },{ 5,15 },{ 10,15 },
+        { 5,15 },{ 10,15 },{ 8,15 },{ 13,15 },
+        { 15, 3 },{ 12,15 },{ 3,15 },{ 3, 8 },
     };
 
     struct InputBlock
@@ -1124,13 +1180,13 @@ namespace
             {
                 /*
                 if (adenom == 0.0)
-                p1 = p2 = er.v / er.w;
+                    p1 = p2 = er.v / er.w;
                 else
                 {
-                float4 a = (er.tv - er.t*er.v / er.w) / adenom;
-                float4 b = (er.v - a * er.t) / er.w;
-                p1 = b;
-                p2 = a + b;
+                    float4 a = (er.tv - er.t*er.v / er.w) / adenom;
+                    float4 b = (er.v - a * er.t) / er.w;
+                    p1 = b;
+                    p2 = a + b;
                 }
                 */
 
