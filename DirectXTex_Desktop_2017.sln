@@ -24,6 +24,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InspectDDS", "InspectDDS\In
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ISPCTextureCompressor", "ISPCTextureCompressor\ISPCTextureCompressor.vcxproj", "{0A705C64-1381-46CF-872A-7AA27B5D1A61}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ConvectionCPUTest", "ConvectionCPUTest\ConvectionCPUTest.vcxproj", "{ADC2361F-E037-460F-A4C7-B6F877DACC02}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -180,6 +182,22 @@ Global
 		{0A705C64-1381-46CF-872A-7AA27B5D1A61}.Release|Win32.Build.0 = Release|Win32
 		{0A705C64-1381-46CF-872A-7AA27B5D1A61}.Release|x64.ActiveCfg = Release|x64
 		{0A705C64-1381-46CF-872A-7AA27B5D1A61}.Release|x64.Build.0 = Release|x64
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Debug|Any CPU.ActiveCfg = Debug|Win32
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Debug|Win32.ActiveCfg = Debug|Win32
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Debug|Win32.Build.0 = Debug|Win32
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Debug|x64.ActiveCfg = Debug|x64
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Debug|x64.Build.0 = Debug|x64
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Profile|Any CPU.ActiveCfg = Release|x64
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Profile|Any CPU.Build.0 = Release|x64
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Profile|Win32.ActiveCfg = Release|Win32
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Profile|Win32.Build.0 = Release|Win32
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Profile|x64.ActiveCfg = Release|x64
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Profile|x64.Build.0 = Release|x64
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Release|Any CPU.ActiveCfg = Release|Win32
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Release|Win32.ActiveCfg = Release|Win32
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Release|Win32.Build.0 = Release|Win32
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Release|x64.ActiveCfg = Release|x64
+		{ADC2361F-E037-460F-A4C7-B6F877DACC02}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

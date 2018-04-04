@@ -260,22 +260,36 @@ namespace analyze
             return resultPath;
         }
 
+        static string CompressWithCCPU(string path, bool run)
+        {
+            string ccPath = "x64\\Release\\ConvectionCPUTest.exe";
+
+            string resultPath = path.Replace(".png", "_ccpu.dds");
+
+            if (run)
+                RunProcess(ccPath, path + " " + resultPath);
+
+            return resultPath;
+        }
+
         static void Main(string[] args)
         {
             bool runCompressonator = false;
             bool runNVTT = false;
             bool runDXCPU = false;
             bool runDX = false;
-            bool runDXHQ = true;
+            bool runDXHQ = false;
             bool runFasTC = false;
             bool runISPC = false;
+            bool runCCPU = true;
             bool runConversions = false;
 
             string[] testImages = {
                 "kodim01.png", "kodim02.png", "kodim03.png", "kodim04.png", "kodim05.png", "kodim06.png",
                 "kodim07.png", "kodim08.png", "kodim09.png", "kodim10.png", "kodim11.png", "kodim12.png",
                 "kodim13.png", "kodim14.png", "kodim15.png", "kodim16.png", "kodim17.png", "kodim18.png",
-                "kodim19.png", "kodim20.png", "kodim21.png", "kodim22.png", "kodim23.png", "kodim24.png" };
+                "kodim19.png", "kodim20.png", "kodim21.png", "kodim22.png", "kodim23.png", "kodim24.png"
+            };
 
             string testDir = "tests\\";
 
@@ -355,6 +369,9 @@ namespace analyze
                 string ispcPath = CompressWithISPC(path, runISPC);
                 fileResults.Add(Benchmark(ispcPath, path, i));
 
+                string ccpuPath = CompressWithCCPU(path, runCCPU);
+                fileResults.Add(Benchmark(ccpuPath, path, i));
+
                 lock (results)
                 {
                     results.Add(path, fileResults);
@@ -382,7 +399,7 @@ namespace analyze
 
             using (System.IO.StreamWriter writer = new System.IO.StreamWriter("benchmark.csv"))
             {
-                writer.WriteLine(",nvtt,,,,compressonator,,,,compressonator_hq,,,,dxhq,,,,dxcpu,,,,dxgpu,,,,fastc,,,,ispc_slow,,,,");
+                writer.WriteLine(",nvtt,,,,compressonator,,,,compressonator_hq,,,,dxhq,,,,dxcpu,,,,dxgpu,,,,fastc,,,,ispc_slow,,,,ccpu,,,,");
                 writer.Write("filename");
                 for (int i = 0; i < 8; i++)
                     writer.Write(",error,worst,x,y");
