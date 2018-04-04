@@ -469,7 +469,7 @@ void InitIndexSelector(out IndexSelectorRGB is, uint2x4 endPoint, uint prec)
 uint SelectIndex(IndexSelectorRGB is, uint4 pixel)
 {
     float dist = dot(float3(pixel.rgb) - is.origin, is.axis);
-    return uint(clamp(dist + 0.5, 0.0, is.maxValue));
+    return uint(round(clamp(dist, 0.0, is.maxValue)));
 }
 
 uint3 ReconstructIndex(IndexSelectorRGB is, uint index)
@@ -869,7 +869,7 @@ void TryMode456CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
                     bestEndPoint[1].a = endPoint[1].a;
                 }
 
-                if (refinePass != NUM_REFINE_PASSES)
+                if (refinePass != NUM_REFINE_PASSES - 1)
                 {
                     uint2x4 refinedEP;
                     GetRefinedEndpoints(erRGB, refinedEP);
@@ -929,7 +929,7 @@ void TryMode456CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
 
                 endPoint[0] = uint4(0, 0, 0, 0);
                 endPoint[1] = uint4(0, 0, 0, 0);
-                if (refinePass != NUM_REFINE_PASSES)
+                if (refinePass != NUM_REFINE_PASSES - 1)
                 {
                     uint2x4 refinedEP;
                     GetRefinedEndpoints(er, refinedEP);
@@ -1217,7 +1217,7 @@ void TryMode137CS( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode
                         }
                     }
 
-                    if (refinePass != NUM_REFINE_PASSES)
+                    if (refinePass != NUM_REFINE_PASSES - 1)
                     {
                         GetRefinedEndpoints(er[0], endPoint[0]);
                         GetRefinedEndpoints(er[1], endPoint[1]);
