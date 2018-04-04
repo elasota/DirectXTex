@@ -593,6 +593,26 @@ namespace DirectX
             // Compress is free to use multithreading to improve performance (by default it does not use multithreading)
     };
 
+    struct TexCompressOptions
+    {
+        DWORD flags;
+        float threshold;
+        float redWeight;
+        float greenWeight;
+        float blueWeight;
+        float alphaWeight;
+
+        TexCompressOptions()
+            : flags(0)
+            , threshold(TEX_THRESHOLD_DEFAULT)
+            , redWeight(0.2125f / 0.7154f)
+            , greenWeight(1.0f)
+            , blueWeight(0.0721f / 0.7154f)
+            , alphaWeight(1.0f)
+        {
+        }
+    };
+
     HRESULT __cdecl Compress(
         _In_ const Image& srcImage, _In_ DXGI_FORMAT format, _In_ DWORD compress, _In_ float threshold,
         _Out_ ScratchImage& cImage);
