@@ -1,6 +1,6 @@
 /*
-    Convection Texture Tools
-    Copyright 2018 Eric Lasota
+    Based on codec from Convection Texture Tools
+    Copyright (c) 2018 Eric Lasota
 
     Permission is hereby granted, free of charge, to any person obtaining
     a copy of this software and associated documentation files (the
@@ -23,7 +23,6 @@
 
     -------------------------------------------------------------------------------------
 
-    Based on DirectX Texture Library
     Copyright (c) Microsoft Corporation. All rights reserved.
     Licensed under the MIT License.
 
@@ -2024,7 +2023,7 @@ namespace
 
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC7Multi(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
+void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
 {
     assert(pColor);
     assert(pBC);

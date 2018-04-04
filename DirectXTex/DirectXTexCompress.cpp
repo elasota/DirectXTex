@@ -58,7 +58,7 @@ namespace
         case DXGI_FORMAT_BC6H_UF16:         pfEncode = D3DXEncodeBC6HU; blocksize = 16;  cflags = 0; nBlocksPerChunk = 1; break;
         case DXGI_FORMAT_BC6H_SF16:         pfEncode = D3DXEncodeBC6HS; blocksize = 16;  cflags = 0; nBlocksPerChunk = 1; break;
         case DXGI_FORMAT_BC7_UNORM:
-        case DXGI_FORMAT_BC7_UNORM_SRGB:    pfEncode = D3DXEncodeBC7Multi; blocksize = 16; cflags = 0; nBlocksPerChunk = BC7_NUM_PARALLEL_BLOCKS; break;
+        case DXGI_FORMAT_BC7_UNORM_SRGB:    pfEncode = D3DXEncodeBC7Parallel; blocksize = 16; cflags = 0; nBlocksPerChunk = BC7_NUM_PARALLEL_BLOCKS; break;
         default:                            pfEncode = nullptr;         blocksize = 0;   cflags = 0; nBlocksPerChunk = 1; return false;
         }
 

@@ -325,6 +325,6 @@ void D3DXEncodeBC5S(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLO
 void D3DXEncodeBC6HU(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ DWORD flags);
 void D3DXEncodeBC6HS(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ DWORD flags);
 void D3DXEncodeBC7(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ DWORD flags);
-void D3DXEncodeBC7Multi(_Out_writes_(16 * BC7_NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * BC7_NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ DWORD flags);
+void D3DXEncodeBC7Parallel(_Out_writes_(16 * BC7_NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * BC7_NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ DWORD flags);
 
 } // namespace
