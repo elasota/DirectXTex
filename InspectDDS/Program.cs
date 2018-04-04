@@ -287,7 +287,6 @@ namespace InspectDDS
             new BC7Mode(PBitMode.PerEndpoint, AlphaMode.Combined, 5, 5, 6, 2, 2, 0, false)  // 7
         };
 
-
         static uint[] s_partitionMap2 = new uint[64]
         {
             0xCCCC, 0x8888, 0xEEEE, 0xECC8,
@@ -630,6 +629,9 @@ namespace InspectDDS
 
                             for (int i = 0; i < 3; i++)
                             {
+                                if (i == mode.numSubsets)
+                                    break;
+
                                 int ep0r = (int)endpoints[i * 2, 0];
                                 int ep0g = (int)endpoints[i * 2, 1];
                                 int ep0b = (int)endpoints[i * 2, 2];
@@ -664,6 +666,25 @@ namespace InspectDDS
 
                                 if (mode.alphaMode == AlphaMode.Separate)
                                 {
+                                    for (uint interp = 0; interp < (1 << (int)rgbIndexPrec); interp++)
+                                    {
+                                        uint ir = rotation == 1 ? 0 : Interpolate((uint)ep0r, (uint)ep1r, rgbIndexPrec, interp);
+                                        uint ig = rotation == 2 ? 0 : Interpolate((uint)ep0g, (uint)ep1g, rgbIndexPrec, interp);
+                                        uint ib = rotation == 3 ? 0 : Interpolate((uint)ep0b, (uint)ep1b, rgbIndexPrec, interp);
+                                        uint ia = rotation == 0 ? 255 : Interpolate((uint)ep0a, (uint)ep1a, rgbIndexPrec, interp);
+
+                                        bmp.SetPixel(ix + 3 + (int)interp, iy, Color.FromArgb((int)ia, (int)ir, (int)ig, (int)ib));
+                                    }
+
+                                    for (uint interp = 0; interp < (1 << (int)alphaIndexPrec); interp++)
+                                    {
+                                        uint ir = rotation == 1 ? Interpolate((uint)ep0r, (uint)ep1r, alphaIndexPrec, interp) : 0;
+                                        uint ig = rotation == 2 ? Interpolate((uint)ep0g, (uint)ep1g, alphaIndexPrec, interp) : 0;
+                                        uint ib = rotation == 3 ? Interpolate((uint)ep0b, (uint)ep1b, alphaIndexPrec, interp) : 0;
+                                        uint ia = rotation == 0 ? Interpolate((uint)ep0a, (uint)ep1a, alphaIndexPrec, interp) : 255;
+
+                                        bmp.SetPixel(ix + 3 + (int)interp, iy + 1, Color.FromArgb((int)ia, (int)ir, (int)ig, (int)ib));
+                                    }
                                 }
                                 else
                                 {
@@ -674,14 +695,13 @@ namespace InspectDDS
                                         uint ib = Interpolate((uint)ep0b, (uint)ep1b, mode.indexBits, interp);
                                         uint ia = Interpolate((uint)ep0a, (uint)ep1a, mode.indexBits, interp);
 
-
                                         bmp.SetPixel(ix + 3 + (int)interp, iy + i, Color.FromArgb((int)ia, (int)ir, (int)ig, (int)ib));
                                     }
                                 }
                             }
 
                             bmp.SetPixel(ix + 0, iy + 3, Color.FromArgb((int)modeID * 0x10, (int)modeID * 0x10, (int)modeID * 0x10));
-                            bmp.SetPixel(ix + 1, iy + 3, Color.FromArgb((int)partition * 4, (int)partition * 4, (int)partition * 4));
+                            bmp.SetPixel(ix + 1, iy + 3, Color.FromArgb((int)partition, (int)partition, (int)partition));
 
                             bmp.SetPixel(ix + 2, iy + 3, Color.FromArgb((int)(0xff000000 | (0xff000000 >> (8 * (int)rotation)))));
                             bmp.SetPixel(ix + 3, iy + 3, Color.FromArgb((int)(indexSelector == 1 ? 0xffffffff : 0xff000000)));
