@@ -62,7 +62,6 @@ using namespace DirectX::PackedVector;
 
 namespace
 {
-
     enum AlphaMode
     {
         AlphaMode_Combined,
@@ -1363,19 +1362,34 @@ namespace
             }
         }
 
-        static MFloat ComputeError(const MInt16 reconstructed[4], const MInt16 original[4])
+        static MFloat ComputeError(DWORD flags, const MInt16 reconstructed[4], const MInt16 original[4])
         {
             MFloat error = ParallelMath::MakeFloatZero();
-            for (int ch = 0; ch < 4; ch++)
-                error = error + ParallelMath::UInt16ToFloat(ParallelMath::SqDiff(reconstructed[ch], original[ch]));
+            if (flags & BC_FLAGS_UNIFORM)
+            {
+                for (int ch = 0; ch < 4; ch++)
+                    error = error + ParallelMath::UInt16ToFloat(ParallelMath::SqDiff(reconstructed[ch], original[ch]));
+            }
+            else
+            {
+                const float perceptualWeights[4] = { 0.2125f / 0.7154f, 1.0f, 0.0721f / 0.7154f, 1.0f };
+                for (int ch = 0; ch < 4; ch++)
+                    error = error + ParallelMath::UInt16ToFloat(ParallelMath::SqDiff(reconstructed[ch], original[ch])) * ParallelMath::MakeFloat(perceptualWeights[ch]);
+            }
 
             return error;
         }
 
-        static void TrySinglePlane(const MInt16 pixels[16][4], WorkInfo& work)
+        static void TrySinglePlane(DWORD flags, const MInt16 pixels[16][4], WorkInfo& work)
         {
             for (uint16_t mode = 0; mode <= 7; mode++)
             {
+                if ((flags & BC_FLAGS_FORCE_BC7_MODE6) && mode != 6)
+                    continue;
+
+                if ((flags & BC_FLAGS_USE_3SUBSETS) && g_modes[mode].m_numSubsets == 3)
+                    continue;
+
                 if (mode == 4 || mode == 5)
                     continue;
 
@@ -1519,7 +1533,7 @@ namespace
 
                                     indexSelectors[subset].Reconstruct(index, reconstructed);
 
-                                    subsetError[subset] = subsetError[subset] + ComputeError(reconstructed, pixels[px]);
+                                    subsetError[subset] = subsetError[subset] + ComputeError(flags, reconstructed, pixels[px]);
 
                                     indexes[px] = index;
                                 }
@@ -1592,8 +1606,11 @@ namespace
             }
         }
 
-        static void TryDualPlane(const MInt16 pixels[16][4], WorkInfo& work)
+        static void TryDualPlane(DWORD flags, const MInt16 pixels[16][4], WorkInfo& work)
         {
+            if (flags & BC_FLAGS_FORCE_BC7_MODE6)
+                return; // Mode 6 is not a dual-plane mode, skip it
+
             for (uint16_t mode = 4; mode <= 5; mode++)
             {
                 for (uint16_t rotation = 0; rotation < 4; rotation++)
@@ -1714,14 +1731,14 @@ namespace
                                     reconstructedRGBA[blueChannel] = reconstructedRGB[2];
                                     reconstructedRGBA[alphaChannel] = pixels[px][alphaChannel];
 
-                                    errorRGB = errorRGB + ComputeError(reconstructedRGBA, pixels[px]);
+                                    errorRGB = errorRGB + ComputeError(flags, reconstructedRGBA, pixels[px]);
 
                                     reconstructedRGBA[redChannel] = pixels[px][redChannel];
                                     reconstructedRGBA[greenChannel] = pixels[px][greenChannel];
                                     reconstructedRGBA[blueChannel] = pixels[px][blueChannel];
                                     reconstructedRGBA[alphaChannel] = reconstructedAlpha[0];
 
-                                    errorA = errorA + ComputeError(reconstructedRGBA, pixels[px]);
+                                    errorA = errorA + ComputeError(flags, reconstructedRGBA, pixels[px]);
 
                                     rgbIndexes[px] = rgbIndex;
                                     alphaIndexes[px] = alphaIndex;
@@ -1795,7 +1812,7 @@ namespace
             b = temp;
         }
 
-        static void Pack(const InputBlock* inputs, uint8_t* packedBlocks)
+        static void Pack(DWORD flags, const InputBlock* inputs, uint8_t* packedBlocks)
         {
             MInt16 pixels[16][4];
 
@@ -1813,8 +1830,8 @@ namespace
 
             work.m_error = ParallelMath::MakeFloat(FLT_MAX);
 
-            TryDualPlane(pixels, work);
-            TrySinglePlane(pixels, work);
+            TryDualPlane(flags, pixels, work);
+            TrySinglePlane(flags, pixels, work);
 
             for (int block = 0; block < ParallelMath::ParallelSize; block++)
             {
@@ -2050,7 +2067,7 @@ void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD 
             }
         }
 
-        BC7Computer::Pack(inputBlocks, pBC);
+        BC7Computer::Pack(flags, inputBlocks, pBC);
 
         pBC += ParallelMath::ParallelSize * 16;
     }
