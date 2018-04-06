@@ -50,9 +50,6 @@
     <ClCompile Include="BC6HBC7.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="BC7Parallel.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="BCDirectCompute.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -104,6 +101,10 @@
     <ClCompile Include="DirectXTexHDR.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="BC7Parallel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BC7Parallel.cpp" />
     <ClCompile Include="BC7Parallel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -195,6 +196,8 @@
     <None Include="Shaders\Compiled\BC7Encode_HQ_TryMode456CS.pdb">
       <Filter>Source Files\Shaders\Symbols</Filter>
     </None>
-    <None Include="Shaders\BC7Encode_HQ.hlsl" />
+    <None Include="Shaders\BC7Encode_HQ.hlsl">
+      <Filter>Source Files\Shaders</Filter>
+    </None>
   </ItemGroup>
 </Project>

@@ -392,7 +392,6 @@
     <CLInclude Include="DirectXTex.h" />
     <CLInclude Include="DirectXTexp.h" />
     <CLInclude Include="DirectXTex.inl" />
-    <ClCompile Include="BC7Parallel.cpp" />
     <ClCompile Include="BCDirectCompute.cpp" />
     <ClCompile Include="DirectXTexCompress.cpp" />
     <ClCompile Include="DirectXTexCompressGPU.cpp" />
