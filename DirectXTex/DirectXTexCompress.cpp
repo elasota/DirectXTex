@@ -271,7 +271,9 @@ namespace
         {
             __declspec(align(16)) XMVECTOR tempBlocks[16 * MAX_PARALLEL_BLOCKS];
 
-            for (int subBlock = 0; subBlock < nBlocksPerChunk; subBlock++)
+            int numProcessableBlocks = std::min<int>(static_cast<int>(nBlocks) - nbBase, nBlocksPerChunk);
+
+            for (int subBlock = 0; subBlock < numProcessableBlocks; subBlock++)
             {
                 XMVECTOR *temp = tempBlocks + subBlock * NUM_PIXELS_PER_BLOCK;
                 int nb = nbBase + subBlock;
@@ -357,12 +359,32 @@ namespace
                 _ConvertScanline(temp, 16, result.format, format, cflags | srgb);
             }
 
+            for (int fillBlock = numProcessableBlocks; fillBlock < nBlocksPerChunk; fillBlock++)
+            {
+                for (int element = 0; element < NUM_PIXELS_PER_BLOCK; element++)
+                    tempBlocks[fillBlock * NUM_PIXELS_PER_BLOCK + element] = XMVectorSet(0.f, 0.f, 0.f, 0.f);
+            }
+
             uint8_t *pDest = result.pixels + (nbBase*blocksize);
 
-            if (pfEncode)
-                pfEncode(pDest, tempBlocks, bcflags);
+            if (numProcessableBlocks == nBlocksPerChunk)
+            {
+                if (pfEncode)
+                    pfEncode(pDest, tempBlocks, bcflags);
+                else
+                    D3DXEncodeBC1(pDest, tempBlocks, threshold, bcflags);
+            }
             else
-                D3DXEncodeBC1(pDest, tempBlocks, threshold, bcflags);
+            {
+                uint8_t scratch[MAX_BLOCK_SIZE * MAX_PARALLEL_BLOCKS];
+
+                if (pfEncode)
+                    pfEncode(scratch, tempBlocks, bcflags);
+                else
+                    D3DXEncodeBC1(scratch, tempBlocks, threshold, bcflags);
+
+                memcpy(pDest, scratch, numProcessableBlocks * blocksize);
+            }
         }
 
         return (fail) ? E_FAIL : S_OK;
