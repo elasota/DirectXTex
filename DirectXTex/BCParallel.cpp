@@ -353,7 +353,7 @@ namespace
             for (int i = 0; i < 2; i++)
                 result.m_values[i] = _mm_max_ps(_mm_min_ps(v.m_values[i], _mm_set1_ps(max)), _mm_set1_ps(min));
             return result;
-    }
+        }
 
         static void ReadPackedInputs(const InputBlock* inputBlocks, int pxOffset, Int32& outPackedPx)
         {
@@ -399,9 +399,19 @@ namespace
             return reinterpret_cast<const uint16_t*>(&v)[offset];
         }
 
-        static float ExtractFloat(float v, int offset)
+        static void PutUInt16(Int16 &dest, int offset, uint16_t v)
+        {
+            reinterpret_cast<uint16_t*>(&dest)[offset] = v;
+        }
+
+        static float ExtractFloat(const Float& v, int offset)
         {
             return reinterpret_cast<const float*>(&v)[offset];
+        }
+
+        static void PutFloat(Float &dest, int offset, float v)
+        {
+            reinterpret_cast<float*>(&dest)[offset] = v;
         }
 
         static Int16CompFlag Less(Int16 a, Int16 b)
@@ -452,6 +462,18 @@ namespace
             return result;
         }
 
+        static FloatCompFlag Int16FlagToFloat(Int16CompFlag v)
+        {
+            
+            __m128i lo = _mm_unpacklo_epi16(v.m_value, v.m_value);
+            __m128i hi = _mm_unpackhi_epi16(v.m_value, v.m_value);
+
+            FloatCompFlag result;
+            result.m_values[0] = _mm_castsi128_ps(lo);
+            result.m_values[1] = _mm_castsi128_ps(hi);
+            return result;
+        }
+
         static Int16 FloatToUInt16(Float v)
         {
             __m128 half = _mm_set1_ps(0.5f);
@@ -490,6 +512,11 @@ namespace
         static bool AnySet(Int16CompFlag v)
         {
             return _mm_movemask_epi8(v.m_value) != 0;
+        }
+
+        static bool AnySet(FloatCompFlag v)
+        {
+            return _mm_movemask_ps(v.m_values[0]) != 0 || _mm_movemask_ps(v.m_values[1]) != 0;
         }
     };
 
@@ -578,10 +605,21 @@ namespace
             return v;
         }
 
+        static void PutUInt16(Int16 &dest, int offset, uint16_t v)
+        {
+            (void)offset;
+            dest = v;
+        }
+
         inline static float ExtractFloat(float v, int offset)
         {
             (void)offset;
             return v;
+        }
+
+        inline static void PutFloat(float &dest, int offset, float v)
+        {
+            dest = v;
         }
 
         template<class T>
@@ -602,6 +640,11 @@ namespace
         }
 
         inline static Int16CompFlag FloatFlagToInt16(FloatCompFlag v)
+        {
+            return v;
+        }
+
+        inline static FloatCompFlag Int16FlagToFloat(Int16CompFlag v)
         {
             return v;
         }
@@ -931,7 +974,7 @@ namespace
         typedef ParallelMath::Float MFloat;
         typedef ParallelMath::Int16 MInt16;
 
-        void Init(const float channelWeights[TVectorSize], MInt16 endPoint[2][TVectorSize], int prec)
+        void Init2(const float channelWeights[TVectorSize], MInt16 endPoint[2][TVectorSize], int range)
         {
             m_isUniform = true;
             for (int ch = 1; ch < TVectorSize; ch++)
@@ -957,8 +1000,8 @@ namespace
                 for (int ch = 0; ch < TVectorSize; ch++)
                     m_endPoint[ep][ch] = endPoint[ep][ch];
 
-            m_prec = prec;
-            m_maxValue = static_cast<float>((1 << m_prec) - 1);
+            m_range = range;
+            m_maxValue = static_cast<float>(range - 1);
 
             MFloat epDiffWeighted[TVectorSize];
             for (int ch = 0; ch < TVectorSize; ch++)
@@ -981,11 +1024,13 @@ namespace
         void Reconstruct(MInt16 index, MInt16* pixel)
         {
             MInt16 weightRcp = ParallelMath::MakeUInt16(0);
-            if (m_prec == 2)
+            if (m_range == 3)
+                weightRcp = ParallelMath::MakeUInt16(16384);
+            else if (m_range == 4)
                 weightRcp = ParallelMath::MakeUInt16(10923);
-            else if (m_prec == 3)
+            else if (m_range == 8)
                 weightRcp = ParallelMath::MakeUInt16(4681);
-            else if (m_prec == 4)
+            else if (m_range == 16)
                 weightRcp = ParallelMath::MakeUInt16(2184);
 
             MInt16 weight = ParallelMath::UnsignedRightShift(index * weightRcp + 256, 9);
@@ -1011,7 +1056,7 @@ namespace
         MInt16 m_endPoint[2][TVectorSize];
         MFloat m_origin[TVectorSize];
         MFloat m_axis[TVectorSize];
-        int m_prec;
+        int m_range;
         float m_maxValue;
         bool m_isUniform;
     };
@@ -1037,7 +1082,7 @@ namespace
         float m_maxIndex;
         float m_channelWeights[TVectorSize];
 
-        void Init(int indexBits, const float channelWeights[TVectorSize])
+        void Init2(int indexRange, const float channelWeights[TVectorSize])
         {
             for (int ch = 0; ch < TVectorSize; ch++)
             {
@@ -1048,7 +1093,7 @@ namespace
             m_t = ParallelMath::MakeFloatZero();
             m_w = ParallelMath::MakeFloatZero();
 
-            m_maxIndex = static_cast<float>((1 << indexBits) - 1);
+            m_maxIndex = static_cast<float>(indexRange - 1);
 
             for (int ch = 0; ch < TVectorSize; ch++)
                 m_channelWeights[ch] = channelWeights[ch];
@@ -1116,6 +1161,45 @@ namespace
 
                 endPoint[0][ch] = ParallelMath::FloatToUInt16(ParallelMath::Clamp(p1 / inverseWeight, 0.f, 255.0f));
                 endPoint[1][ch] = ParallelMath::FloatToUInt16(ParallelMath::Clamp(p2 / inverseWeight, 0.f, 255.0f));
+            }
+        }
+    };
+
+    class BCCommon
+    {
+    public:
+        static const int NumTweakRounds = 4;
+        static const int NumRefineRounds = 2;
+
+        typedef ParallelMath::Int16 MInt16;
+        typedef ParallelMath::Int32 MInt32;
+        typedef ParallelMath::Float MFloat;
+
+        template<int TVectorSize>
+        static MFloat ComputeError(DWORD flags, const MInt16 reconstructed[TVectorSize], const MInt16 original[TVectorSize], const float channelWeights[TVectorSize])
+        {
+            MFloat error = ParallelMath::MakeFloatZero();
+            if (flags & BC_FLAGS_UNIFORM)
+            {
+                for (int ch = 0; ch < TVectorSize; ch++)
+                    error = error + ParallelMath::UInt16ToFloat(ParallelMath::SqDiff(reconstructed[ch], original[ch]));
+            }
+            else
+            {
+                for (int ch = 0; ch < TVectorSize; ch++)
+                    error = error + ParallelMath::UInt16ToFloat(ParallelMath::SqDiff(reconstructed[ch], original[ch])) * ParallelMath::MakeFloat(channelWeights[ch]);
+            }
+
+            return error;
+        }
+
+        template<int TChannelCount>
+        static void PreWeightPixels(MFloat preWeightedPixels[16][TChannelCount], const MInt16 pixels[16][TChannelCount], const float channelWeights[TChannelCount])
+        {
+            for (int px = 0; px < 16; px++)
+            {
+                for (int ch = 0; ch < TChannelCount; ch++)
+                    preWeightedPixels[px][ch] = ParallelMath::UInt16ToFloat(pixels[px][ch]) * channelWeights[ch];
             }
         }
     };
@@ -1279,34 +1363,6 @@ namespace
             }
         }
 
-        template<int TVectorSize>
-        static MFloat ComputeError(DWORD flags, const MInt16 reconstructed[TVectorSize], const MInt16 original[TVectorSize], const float channelWeights[TVectorSize])
-        {
-            MFloat error = ParallelMath::MakeFloatZero();
-            if (flags & BC_FLAGS_UNIFORM)
-            {
-                for (int ch = 0; ch < 4; ch++)
-                    error = error + ParallelMath::UInt16ToFloat(ParallelMath::SqDiff(reconstructed[ch], original[ch]));
-            }
-            else
-            {
-                for (int ch = 0; ch < 4; ch++)
-                    error = error + ParallelMath::UInt16ToFloat(ParallelMath::SqDiff(reconstructed[ch], original[ch])) * ParallelMath::MakeFloat(channelWeights[ch]);
-            }
-
-            return error;
-        }
-
-        template<int TChannelCount>
-        static void PreWeightPixels(MFloat preWeightedPixels[16][TChannelCount], const MInt16 pixels[16][TChannelCount], const float channelWeights[TChannelCount])
-        {
-            for (int px = 0; px < 16; px++)
-            {
-                for (int ch = 0; ch < TChannelCount; ch++)
-                    preWeightedPixels[px][ch] = ParallelMath::UInt16ToFloat(pixels[px][ch]) * channelWeights[ch];
-            }
-        }
-
         static void TrySinglePlane(DWORD flags, const MInt16 pixels[16][4], const float channelWeights[4], WorkInfo& work)
         {
             MInt16 maxAlpha = ParallelMath::MakeUInt16(0);
@@ -1373,7 +1429,7 @@ namespace
                     {
                         MFloat preWeightedPixels[16][4];
 
-                        PreWeightPixels<4>(preWeightedPixels, rgbAdjustedPixels, channelWeights);
+                        BCCommon::PreWeightPixels<4>(preWeightedPixels, rgbAdjustedPixels, channelWeights);
 
                         for (int px = 0; px < 16; px++)
                         {
@@ -1458,12 +1514,12 @@ namespace
                                 IndexSelector<4> indexSelectors[3];
 
                                 for (int subset = 0; subset < numSubsets; subset++)
-                                    indexSelectors[subset].Init(channelWeights, ep[subset], indexPrec);
+                                    indexSelectors[subset].Init2(channelWeights, ep[subset], 1 << indexPrec);
 
                                 EndpointRefiner<4> epRefiners[3];
 
                                 for (int subset = 0; subset < numSubsets; subset++)
-                                    epRefiners[subset].Init(indexPrec, channelWeights);
+                                    epRefiners[subset].Init2(1 << indexPrec, channelWeights);
 
                                 MFloat subsetError[3] = { ParallelMath::MakeFloatZero(), ParallelMath::MakeFloatZero(), ParallelMath::MakeFloatZero() };
 
@@ -1487,7 +1543,7 @@ namespace
 
                                     indexSelectors[subset].Reconstruct(index, reconstructed);
 
-                                    subsetError[subset] = subsetError[subset] + ComputeError<4>(flags, reconstructed, pixels[px], channelWeights);
+                                    subsetError[subset] = subsetError[subset] + BCCommon::ComputeError<4>(flags, reconstructed, pixels[px], channelWeights);
 
                                     indexes[px] = index;
                                 }
@@ -1597,7 +1653,7 @@ namespace
                     float uniformWeight[1] = { 1.0f };   // Since the alpha channel is independent, there's no need to bother with weights when doing refinement or selection, only error
 
                     MFloat preWeightedRotatedRGB[16][3];
-                    PreWeightPixels<3>(preWeightedRotatedRGB, rotatedRGB, rotatedRGBWeights);
+                    BCCommon::PreWeightPixels<3>(preWeightedRotatedRGB, rotatedRGB, rotatedRGBWeights);
 
                     for (uint16_t indexSelector = 0; indexSelector < maxIndexSelector; indexSelector++)
                     {
@@ -1665,15 +1721,15 @@ namespace
 
                                 {
                                     MInt16 alphaEPTemp[2][1] = { { alphaEP[0] },{ alphaEP[1] } };
-                                    alphaIndexSelector.Init(uniformWeight, alphaEPTemp, alphaPrec);
+                                    alphaIndexSelector.Init2(uniformWeight, alphaEPTemp, 1 << alphaPrec);
                                 }
-                                rgbIndexSelector.Init(rotatedRGBWeights, rgbEP, rgbPrec);
+                                rgbIndexSelector.Init2(rotatedRGBWeights, rgbEP, 1 << rgbPrec);
 
                                 EndpointRefiner<3> rgbRefiner;
                                 EndpointRefiner<1> alphaRefiner;
 
-                                rgbRefiner.Init(rgbPrec, rotatedRGBWeights);
-                                alphaRefiner.Init(alphaPrec, uniformWeight);
+                                rgbRefiner.Init2(1 << rgbPrec, rotatedRGBWeights);
+                                alphaRefiner.Init2(1 << alphaPrec, uniformWeight);
 
                                 MFloat errorRGB = ParallelMath::MakeFloatZero();
                                 MFloat errorA = ParallelMath::MakeFloatZero();
@@ -1695,9 +1751,9 @@ namespace
                                     rgbIndexSelector.Reconstruct(rgbIndex, reconstructedRGB);
                                     alphaIndexSelector.Reconstruct(alphaIndex, reconstructedAlpha);
 
-                                    errorRGB = errorRGB + ComputeError<3>(flags, reconstructedRGB, rotatedRGB[px], rotatedRGBWeights);
+                                    errorRGB = errorRGB + BCCommon::ComputeError<3>(flags, reconstructedRGB, rotatedRGB[px], rotatedRGBWeights);
 
-                                    errorA = errorA + ComputeError<1>(flags, reconstructedAlpha, pixels[px] + alphaChannel, rotatedAlphaWeight);
+                                    errorA = errorA + BCCommon::ComputeError<1>(flags, reconstructedAlpha, pixels[px] + alphaChannel, rotatedAlphaWeight);
 
                                     rgbIndexes[px] = rgbIndex;
                                     alphaIndexes[px] = alphaIndex;
@@ -1995,8 +2051,380 @@ namespace
             }
         }
     };
+
+    class S3TCComputer
+    {
+    public:
+        typedef ParallelMath::Float MFloat;
+        typedef ParallelMath::Int16 MInt16;
+        typedef ParallelMath::Int32 MInt32;
+
+        static void Init(MFloat& error)
+        {
+            error = ParallelMath::MakeFloat(FLT_MAX);
+        }
+
+        static void QuantizeToBits(MInt16& v, int bits)
+        {
+            v = ParallelMath::FloatToUInt16(ParallelMath::Clamp(ParallelMath::UInt16ToFloat(v) * ParallelMath::MakeFloat(1.0f / 255.0f) * static_cast<float>((1 << bits) - 1), 0.f, 255.f));
+            v = (v << (8 - bits)) | ParallelMath::UnsignedRightShift(v, (bits * 2 - 8));
+        }
+
+        static void QuantizeTo565(MInt16 endPoint[3])
+        {
+            QuantizeToBits(endPoint[0], 5);
+            QuantizeToBits(endPoint[1], 6);
+            QuantizeToBits(endPoint[2], 5);
+        }
+
+        static void TestCounts(DWORD flags, const int *counts, int nCounts, MInt16 numElements, MInt16 pixels[16][4], bool alphaTest,
+            MInt16 sortedInputs[16][4], const float *channelWeights, MFloat &bestError, MInt16 bestEndpoints[2][3], MInt16 bestIndexes[16], MInt16 &bestRange)
+        {
+            EndpointRefiner<3> refiner;
+
+            refiner.Init2(nCounts, channelWeights);
+
+            bool escape = false;
+            int e = 0;
+            for (int i = 0; i < nCounts; i++)
+            {
+                for (int n = 0; n < counts[i]; n++)
+                {
+                    ParallelMath::Int16CompFlag valid = ParallelMath::Less(ParallelMath::MakeUInt16(n), numElements);
+                    if (!ParallelMath::AnySet(valid))
+                    {
+                        escape = true;
+                        break;
+                    }
+
+                    MFloat weight = ParallelMath::Select(ParallelMath::Int16FlagToFloat(valid), ParallelMath::MakeFloat(1.0f), ParallelMath::MakeFloat(0.0f));
+                    refiner.Contribute(sortedInputs[e++], ParallelMath::MakeUInt16(i), weight);
+                }
+
+                if (escape)
+                    break;
+            }
+
+            MInt16 endPoints[2][3];
+            refiner.GetRefinedEndpoints(endPoints);
+
+            QuantizeTo565(endPoints[0]);
+            QuantizeTo565(endPoints[1]);
+
+            IndexSelector<3> selector;
+            selector.Init2(channelWeights, endPoints, nCounts);
+
+            MInt16 indexes[16];
+
+            MFloat error = ParallelMath::MakeFloatZero();
+            for (int px = 0; px < 16; px++)
+            {
+                MInt16 index = selector.SelectIndex(pixels[px]);
+                indexes[px] = index;
+
+                MInt16 reconstructed[3];
+                selector.Reconstruct(index, reconstructed);
+
+                error = error + BCCommon::ComputeError<3>(flags, reconstructed, pixels[px], channelWeights);
+            }
+
+            ParallelMath::FloatCompFlag better = ParallelMath::Less(error, bestError);
+
+            if (ParallelMath::AnySet(better))
+            {
+                ParallelMath::Int16CompFlag betterInt16 = ParallelMath::FloatFlagToInt16(better);
+
+                ParallelMath::ConditionalSet(bestError, better, error);
+
+                for (int ep = 0; ep < 2; ep++)
+                    for (int ch = 0; ch < 3; ch++)
+                        ParallelMath::ConditionalSet(bestEndpoints[ep][ch], betterInt16, endPoints[ep][ch]);
+
+                for (int px = 0; px < 16; px++)
+                    ParallelMath::ConditionalSet(bestIndexes[px], betterInt16, indexes[px]);
+
+                ParallelMath::ConditionalSet(bestRange, betterInt16, ParallelMath::MakeUInt16(nCounts));
+            }
+        }
+
+        static void PackRGB(DWORD flags, const InputBlock* inputs, uint8_t* packedBlocks, const float channelWeights[4], bool alphaTest, float alphaThreshold)
+        {
+            EndpointSelector<3, 8> endpointSelector;
+
+            MInt16 pixels[16][4];
+
+            MFloat preWeightedPixels[16][4];
+
+            for (int px = 0; px < 16; px++)
+            {
+                MInt32 packedPx;
+                ParallelMath::ReadPackedInputs(inputs, px, packedPx);
+
+                for (int ch = 0; ch < 4; ch++)
+                    ParallelMath::UnpackChannel(packedPx, ch, pixels[px][ch]);
+            }
+
+            if (alphaTest)
+            {
+                MInt16 threshold = ParallelMath::MakeUInt16(static_cast<uint16_t>(floorf(alphaThreshold * 255.0f + 0.5f)));
+
+                for (int px = 0; px < 16; px++)
+                {
+                    ParallelMath::Int16CompFlag belowThreshold = ParallelMath::Less(pixels[px][3], threshold);
+                    pixels[px][3] = ParallelMath::Select(belowThreshold, ParallelMath::MakeUInt16(0), ParallelMath::MakeUInt16(255));
+                }
+            }
+
+            BCCommon::PreWeightPixels<4>(preWeightedPixels, pixels, channelWeights);
+
+            MInt16 minAlpha = ParallelMath::MakeUInt16(255);
+
+            for (int px = 0; px < 16; px++)
+                minAlpha = ParallelMath::Min(minAlpha, pixels[px][3]);
+
+            MFloat pixelWeights[16];
+            for (int px = 0; px < 16; px++)
+            {
+                pixelWeights[px] = ParallelMath::MakeFloat(1.0f);
+                if (alphaTest)
+                {
+                    ParallelMath::Int16CompFlag isTransparent = ParallelMath::Less(pixels[px][3], ParallelMath::MakeUInt16(255));
+
+                    ParallelMath::ConditionalSet(pixelWeights[px], ParallelMath::Int16FlagToFloat(isTransparent), ParallelMath::MakeFloatZero());
+                }
+            }
+
+            for (int pass = 0; pass < NumEndpointSelectorPasses; pass++)
+            {
+                for (int px = 0; px < 16; px++)
+                    endpointSelector.ContributePass(preWeightedPixels[px], pass, pixelWeights[px]);
+
+                endpointSelector.FinishPass(pass);
+            }
+
+            UnfinishedEndpoints<3> ufep = endpointSelector.GetEndpoints(channelWeights);
+
+            MInt16 sortBins[16];
+
+            {
+                // Compute an 11-bit index, change it to signed, and stuff it in the high bits of the sort bins,
+                // and pack the original indexes into the low bits.
+
+                MInt16 sortEP[2][3];
+                ufep.Finish(0, 11, sortEP[0], sortEP[1]);
+
+                IndexSelector<3> sortSelector;
+                sortSelector.Init2(channelWeights, sortEP, 1 << 11);
+
+                for (int px = 0; px < 16; px++)
+                {
+                    MInt16 sortBin = (sortSelector.SelectIndex(pixels[px]) << 4);
+
+                    if (alphaTest)
+                    {
+                        ParallelMath::Int16CompFlag isTransparent = ParallelMath::Less(pixels[px][3], ParallelMath::MakeUInt16(255));
+
+                        ParallelMath::ConditionalSet(sortBin, isTransparent, ParallelMath::MakeUInt16(-16));
+                    }
+                    
+                    sortBin = sortBin + ParallelMath::MakeUInt16(px);
+
+                    sortBins[px] = sortBin;
+                }
+            }
+
+            // Sort bins
+            for (int sortEnd = 1; sortEnd < 16; sortEnd++)
+            {
+                for (int sortLoc = sortEnd; sortLoc > 0; sortLoc--)
+                {
+                    MInt16 a = sortBins[sortLoc];
+                    MInt16 b = sortBins[sortLoc - 1];
+
+                    sortBins[sortLoc] = ParallelMath::Max(a, b);
+                    sortBins[sortLoc - 1] = ParallelMath::Min(a, b);
+                }
+            }
+
+            MInt16 firstElement = ParallelMath::MakeUInt16(0);
+            for (uint16_t e = 0; e < 16; e++)
+            {
+                ParallelMath::Int16CompFlag isInvalid = ParallelMath::Less(sortBins[e], ParallelMath::MakeUInt16(0));
+                ParallelMath::ConditionalSet(firstElement, isInvalid, ParallelMath::MakeUInt16(e + 1));
+                if (!ParallelMath::AnySet(isInvalid))
+                    break;
+            }
+
+            MInt16 numElements = ParallelMath::MakeUInt16(16) - firstElement;
+
+            MInt16 sortedInputs[16][4];
+
+            for (int e = 0; e < 16; e++)
+            {
+                for (int ch = 0; ch < 4; ch++)
+                    sortedInputs[e][ch] = ParallelMath::MakeUInt16(0);
+            }
+
+            for (int block = 0; block < ParallelMath::ParallelSize; block++)
+            {
+                for (int e = ParallelMath::ExtractUInt16(firstElement, block); e < 16; e++)
+                {
+                    uint16_t sortBin = ParallelMath::ExtractUInt16(sortBins[e], block);
+                    int originalIndex = (sortBin & 15);
+
+                    for (int ch = 0; ch < 4; ch++)
+                        ParallelMath::PutUInt16(sortedInputs[15 - e][ch], block, ParallelMath::ExtractUInt16(pixels[originalIndex][ch], block));
+                }
+            }
+
+            MInt16 bestEndpoints[2][3];
+            MInt16 bestIndexes[16];
+            MInt16 bestRange = ParallelMath::MakeUInt16(0);
+            MFloat bestError = ParallelMath::MakeFloat(FLT_MAX);
+
+            for (int px = 0; px < 16; px++)
+                bestIndexes[px] = ParallelMath::MakeUInt16(0);
+
+            for (int ep = 0; ep < 2; ep++)
+                for (int ch = 0; ch < 3; ch++)
+                    bestEndpoints[ep][ch] = ParallelMath::MakeUInt16(0);
+
+            for (int n0 = 0; n0 <= 15; n0++)
+            {
+                int remainingFor1 = 16 - n0;
+
+                for (int n1 = 0; n1 <= remainingFor1; n1++)
+                {
+                    int remainingFor2 = 16 - n1 - n0;
+
+                    for (int n2 = 0; n2 <= remainingFor2; n2++)
+                    {
+                        int n3 = 16 - n2 - n1 - n0;
+
+                        int counts[4] = { n0, n1, n2, n3 };
+
+                        TestCounts(flags, counts, 4, numElements, pixels, alphaTest, sortedInputs, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange);
+                    }
+                }
+            }
+
+            for (int n0 = 0; n0 <= 15; n0++)
+            {
+                int remainingFor1 = 16 - n0;
+
+                for (int n1 = 0; n1 <= remainingFor1; n1++)
+                {
+                    int remainingFor2 = 16 - n1 - n0;
+
+                        int n2 = 16 - n1 - n0;
+
+                    int counts[3] = { n0, n1, n2 };
+
+                    TestCounts(flags, counts, 3, numElements, pixels, alphaTest, sortedInputs, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange);
+                }
+            }
+
+            for (int block = 0; block < ParallelMath::ParallelSize; block++)
+            {
+                uint16_t range = ParallelMath::ExtractUInt16(bestRange, block);
+                assert(range == 3 || range == 4);
+
+                uint16_t compressedEP[2];
+                for (int ep = 0; ep < 2; ep++)
+                {
+                    uint16_t endPoint[3];
+                    for (int ch = 0; ch < 3; ch++)
+                        endPoint[ch] = ParallelMath::ExtractUInt16(bestEndpoints[ep][ch], block);
+
+                    int compressed = (endPoint[0] & 0xf8) << 8;
+                    compressed |= (endPoint[1] & 0xfc) << 3;
+                    compressed |= (endPoint[2] & 0xf8) >> 3;
+
+                    compressedEP[ep] = static_cast<uint16_t>(compressed);
+                }
+
+                int indexOrder[4];
+                bool flipIndexes = false;
+
+                if (range == 4)
+                {
+                    if (compressedEP[0] <= compressedEP[1])
+                    {
+                        std::swap(compressedEP[0], compressedEP[1]);
+                        indexOrder[0] = 1;
+                        indexOrder[1] = 3;
+                        indexOrder[2] = 2;
+                        indexOrder[3] = 0;
+                    }
+                    else
+                    {
+                        indexOrder[0] = 0;
+                        indexOrder[1] = 2;
+                        indexOrder[2] = 3;
+                        indexOrder[3] = 1;
+                    }
+                }
+                else
+                {
+                    assert(range == 3);
+
+                    if (compressedEP[0] > compressedEP[1])
+                    {
+                        std::swap(compressedEP[0], compressedEP[1]);
+                        indexOrder[0] = 1;
+                        indexOrder[1] = 2;
+                        indexOrder[2] = 0;
+                    }
+                    else
+                    {
+                        indexOrder[0] = 0;
+                        indexOrder[1] = 2;
+                        indexOrder[2] = 1;
+                    }
+                    indexOrder[3] = 3;
+                }
+
+                *packedBlocks++ = static_cast<uint8_t>(compressedEP[0] & 0xff);
+                *packedBlocks++ = static_cast<uint8_t>((compressedEP[0] >> 8) & 0xff);
+                *packedBlocks++ = static_cast<uint8_t>(compressedEP[1] & 0xff);
+                *packedBlocks++ = static_cast<uint8_t>((compressedEP[1] >> 8) & 0xff);
+
+                for (int i = 0; i < 16; i += 4)
+                {
+                    int packedIndexes = 0;
+                    for (int subi = 0; subi < 4; subi++)
+                    {
+                        uint16_t index = ParallelMath::ExtractUInt16(bestIndexes[i + subi], block);
+                        packedIndexes |= (indexOrder[index] << (subi * 2));
+                    }
+
+                    *packedBlocks++ = static_cast<uint8_t>(packedIndexes);
+                }
+            }
+        }
+    };
 }
 
+static void PrepareInputBlock(InputBlock inputBlocks[BC7_NUM_PARALLEL_BLOCKS], const XMVECTOR *&pColor, DWORD flags)
+{
+    for (size_t block = 0; block < ParallelMath::ParallelSize; block++)
+    {
+        InputBlock& inputBlock = inputBlocks[block];
+
+        for (size_t i = 0; i < NUM_PIXELS_PER_BLOCK; ++i)
+        {
+            int32_t packedPixel = 0;
+            for (size_t ch = 0; ch < 4; ch++)
+            {
+                int32_t convertedValue = static_cast<int32_t>(std::max<float>(0.0f, std::min<float>(255.0f, reinterpret_cast<const float*>(pColor)[ch] * 255.0f + 0.01f)));
+                packedPixel |= (convertedValue << (ch * 8));
+            }
+
+            inputBlock.m_pixels[i] = packedPixel;
+            pColor++;
+        }
+    }
+}
 
 _Use_decl_annotations_
 void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
@@ -2008,23 +2436,7 @@ void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD 
     {
         InputBlock inputBlocks[BC7_NUM_PARALLEL_BLOCKS];
 
-        for (size_t block = 0; block < ParallelMath::ParallelSize; block++)
-        {
-            InputBlock& inputBlock = inputBlocks[block];
-
-            for (size_t i = 0; i < NUM_PIXELS_PER_BLOCK; ++i)
-            {
-                int32_t packedPixel = 0;
-                for (size_t ch = 0; ch < 4; ch++)
-                {
-                    int32_t convertedValue = static_cast<int32_t>(std::max<float>(0.0f, std::min<float>(255.0f, reinterpret_cast<const float*>(pColor)[ch] * 255.0f + 0.01f)));
-                    packedPixel |= (convertedValue << (ch * 8));
-                }
-
-                inputBlock.m_pixels[i] = packedPixel;
-                pColor++;
-            }
-        }
+        PrepareInputBlock(inputBlocks, pColor, flags);
 
         const float perceptualWeights[4] = { 0.2125f / 0.7154f, 1.0f, 0.0721f / 0.7154f, 1.0f };
         const float uniformWeights[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -2032,5 +2444,26 @@ void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD 
         BC7Computer::Pack(flags, inputBlocks, pBC, (flags & BC_FLAGS_UNIFORM) ? uniformWeights : perceptualWeights);
 
         pBC += ParallelMath::ParallelSize * 16;
+    }
+}
+
+_Use_decl_annotations_
+void DirectX::D3DXEncodeBC1Parallel(uint8_t *pBC, const XMVECTOR *pColor, _In_ float threshold, DWORD flags)
+{
+    assert(pColor);
+    assert(pBC);
+
+    for (size_t blockBase = 0; blockBase < BC7_NUM_PARALLEL_BLOCKS; blockBase += ParallelMath::ParallelSize)
+    {
+        InputBlock inputBlocks[BC7_NUM_PARALLEL_BLOCKS];
+
+        PrepareInputBlock(inputBlocks, pColor, flags);
+
+        const float perceptualWeights[4] = { 0.2125f / 0.7154f, 1.0f, 0.0721f / 0.7154f, 1.0f };
+        const float uniformWeights[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+        S3TCComputer::PackRGB(flags, inputBlocks, pBC, (flags & BC_FLAGS_UNIFORM) ? uniformWeights : perceptualWeights, true, threshold);
+
+        pBC += ParallelMath::ParallelSize * 8;
     }
 }

@@ -46,7 +46,7 @@ namespace
         switch (format)
         {
         case DXGI_FORMAT_BC1_UNORM:
-        case DXGI_FORMAT_BC1_UNORM_SRGB:    pfEncode = nullptr;         blocksize = 8;   cflags = 0; nBlocksPerChunk = 1; break;
+        case DXGI_FORMAT_BC1_UNORM_SRGB:    pfEncode = nullptr;         blocksize = 8;   cflags = 0; nBlocksPerChunk = BC7_NUM_PARALLEL_BLOCKS; break;
         case DXGI_FORMAT_BC2_UNORM:
         case DXGI_FORMAT_BC2_UNORM_SRGB:    pfEncode = D3DXEncodeBC2;   blocksize = 16;  cflags = 0; nBlocksPerChunk = 1; break;
         case DXGI_FORMAT_BC3_UNORM:
@@ -182,12 +182,14 @@ namespace
 
                 _ConvertScanline(temp, 16, result.format, format, cflags | srgb);
 
+                nQueuedBlocks++;
+
                 if (nQueuedBlocks == nBlocksPerChunk)
                 {
                     if (pfEncode)
                         pfEncode(dptr, tempBlocks, bcflags);
                     else
-                        D3DXEncodeBC1(dptr, tempBlocks, threshold, bcflags);
+                        D3DXEncodeBC1Parallel(dptr, tempBlocks, threshold, bcflags);
 
                     dptr += blocksize * nBlocksPerChunk;
                     nQueuedBlocks = 0;
@@ -207,7 +209,7 @@ namespace
                 if (pfEncode)
                     pfEncode(scratch, tempBlocks, bcflags);
                 else
-                    D3DXEncodeBC1(scratch, tempBlocks, threshold, bcflags);
+                    D3DXEncodeBC1Parallel(scratch, tempBlocks, threshold, bcflags);
 
                 memcpy(dptr, scratch, blocksize * nQueuedBlocks);
                 dptr += blocksize * nQueuedBlocks;
@@ -372,7 +374,7 @@ namespace
                 if (pfEncode)
                     pfEncode(pDest, tempBlocks, bcflags);
                 else
-                    D3DXEncodeBC1(pDest, tempBlocks, threshold, bcflags);
+                    D3DXEncodeBC1Parallel(pDest, tempBlocks, threshold, bcflags);
             }
             else
             {
@@ -381,7 +383,7 @@ namespace
                 if (pfEncode)
                     pfEncode(scratch, tempBlocks, bcflags);
                 else
-                    D3DXEncodeBC1(scratch, tempBlocks, threshold, bcflags);
+                    D3DXEncodeBC1Parallel(scratch, tempBlocks, threshold, bcflags);
 
                 memcpy(pDest, scratch, numProcessableBlocks * blocksize);
             }

@@ -101,11 +101,11 @@
     <ClCompile Include="DirectXTexHDR.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="BC7Parallel.cpp" />
     <ClCompile Include="BC7Parallel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="BC7Parallel.cpp" />
-    <ClCompile Include="BC7Parallel.cpp">
+    <ClCompile Include="BCParallel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
