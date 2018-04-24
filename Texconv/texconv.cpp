@@ -1479,7 +1479,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 break;
 
             case OPT_COMPRESS_HQ:
-                dwCompress |= TEX_COMPRESS_BC7_HQ;
+                dwCompress |= TEX_COMPRESS_HIGH_QUALITY;
                 break;
 
             case OPT_COMPRESS_QUICK:

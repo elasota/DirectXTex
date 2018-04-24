@@ -719,9 +719,9 @@ namespace
         }
     };
 
-    void ComputeTweakFactors(int tweak, int bits, float* outFactors)
+    void ComputeTweakFactors2(int tweak, int range, float* outFactors)
     {
-        int totalUnits = (1 << bits) - 1;
+        int totalUnits = range - 1;
         int minOutsideUnits = ((tweak >> 1) & 1);
         int maxOutsideUnits = (tweak & 1);
         int insideUnits = totalUnits - minOutsideUnits - maxOutsideUnits;
@@ -754,10 +754,10 @@ namespace
         {
         }
 
-        void Finish(int tweak, int bits, MInt16* outEP0, MInt16* outEP1)
+        void Finish2(int tweak, int range, MInt16* outEP0, MInt16* outEP1)
         {
             float tweakFactors[2];
-            ComputeTweakFactors(tweak, bits, tweakFactors);
+            ComputeTweakFactors2(tweak, range, tweakFactors);
 
             for (int ch = 0; ch < TVectorSize; ch++)
             {
@@ -1168,12 +1168,18 @@ namespace
     class BCCommon
     {
     public:
-        static const int NumTweakRounds = 4;
         static const int NumRefineRounds = 2;
 
         typedef ParallelMath::Int16 MInt16;
         typedef ParallelMath::Int32 MInt32;
         typedef ParallelMath::Float MFloat;
+
+        static int TweakRoundsForRange(int range)
+        {
+            if (range == 3)
+                return 3;
+            return 4;
+        }
 
         template<int TVectorSize>
         static MFloat ComputeError(DWORD flags, const MInt16 reconstructed[TVectorSize], const MInt16 original[TVectorSize], const float channelWeights[TVectorSize])
@@ -1233,10 +1239,10 @@ namespace
             };
         };
 
-        static void TweakAlpha(const MInt16 original[2], int tweak, int bits, MInt16 result[2])
+        static void TweakAlpha2(const MInt16 original[2], int tweak, int range, MInt16 result[2])
         {
             float tf[2];
-            ComputeTweakFactors(tweak, bits, tf);
+            ComputeTweakFactors2(tweak, range, tf);
 
             MFloat base = ParallelMath::UInt16ToFloat(original[0]);
             MFloat offs = ParallelMath::UInt16ToFloat(original[1]) - base;
@@ -1464,7 +1470,7 @@ namespace
                         MInt16 baseEP[3][2][4];
 
                         for (int subset = 0; subset < numSubsets; subset++)
-                            unfinishedEPs[subset].Finish(tweak, indexPrec, baseEP[subset][0], baseEP[subset][1]);
+                            unfinishedEPs[subset].Finish2(tweak, 1 <<indexPrec, baseEP[subset][0], baseEP[subset][1]);
 
                         for (int pIter = 0; pIter < parityBitMax; pIter++)
                         {
@@ -1704,9 +1710,9 @@ namespace
                             MInt16 rgbEP[2][3];
                             MInt16 alphaEP[2];
 
-                            unfinishedRGB.Finish(tweak, rgbPrec, rgbEP[0], rgbEP[1]);
+                            unfinishedRGB.Finish2(tweak, 1 << rgbPrec, rgbEP[0], rgbEP[1]);
 
-                            TweakAlpha(alphaRange, tweak, alphaPrec, alphaEP);
+                            TweakAlpha2(alphaRange, tweak, 1 << alphaPrec, alphaEP);
 
                             for (int refine = 0; refine < NumRefineRounds; refine++)
                             {
@@ -2077,7 +2083,60 @@ namespace
             QuantizeToBits(endPoint[2], 5);
         }
 
-        static void TestCounts(DWORD flags, const int *counts, int nCounts, MInt16 numElements, MInt16 pixels[16][4], bool alphaTest,
+        static void TestEndpoints(DWORD flags, const MInt16 pixels[16][4], const MInt16 unquantizedEndPoints[2][3], int range, const float* channelWeights,
+            MFloat &bestError, MInt16 bestEndpoints[2][3], MInt16 bestIndexes[16], MInt16 &bestRange, EndpointRefiner<3> *refiner)
+        {
+            MInt16 endPoints[2][3];
+
+            for (int ep = 0; ep < 2; ep++)
+                for (int ch = 0; ch < 3; ch++)
+                    endPoints[ep][ch] = unquantizedEndPoints[ep][ch];
+
+            QuantizeTo565(endPoints[0]);
+            QuantizeTo565(endPoints[1]);
+
+            IndexSelector<3> selector;
+            selector.Init2(channelWeights, endPoints, range);
+
+            MInt16 indexes[16];
+
+            MFloat error = ParallelMath::MakeFloatZero();
+            for (int px = 0; px < 16; px++)
+            {
+                MInt16 index = selector.SelectIndex(pixels[px]);
+                indexes[px] = index;
+
+                MFloat weight = ParallelMath::MakeFloat(1.0f);
+
+                if (refiner)
+                    refiner->Contribute(pixels[px], index, weight);
+
+                MInt16 reconstructed[3];
+                selector.Reconstruct(index, reconstructed);
+
+                error = error + BCCommon::ComputeError<3>(flags, reconstructed, pixels[px], channelWeights);
+            }
+
+            ParallelMath::FloatCompFlag better = ParallelMath::Less(error, bestError);
+
+            if (ParallelMath::AnySet(better))
+            {
+                ParallelMath::Int16CompFlag betterInt16 = ParallelMath::FloatFlagToInt16(better);
+
+                ParallelMath::ConditionalSet(bestError, better, error);
+
+                for (int ep = 0; ep < 2; ep++)
+                    for (int ch = 0; ch < 3; ch++)
+                        ParallelMath::ConditionalSet(bestEndpoints[ep][ch], betterInt16, endPoints[ep][ch]);
+
+                for (int px = 0; px < 16; px++)
+                    ParallelMath::ConditionalSet(bestIndexes[px], betterInt16, indexes[px]);
+
+                ParallelMath::ConditionalSet(bestRange, betterInt16, ParallelMath::MakeUInt16(range));
+            }
+        }
+
+        static void TestCounts(DWORD flags, const int *counts, int nCounts, MInt16 numElements, const MInt16 pixels[16][4], bool alphaTest,
             MInt16 sortedInputs[16][4], const float *channelWeights, MFloat &bestError, MInt16 bestEndpoints[2][3], MInt16 bestIndexes[16], MInt16 &bestRange)
         {
             EndpointRefiner<3> refiner;
@@ -2108,46 +2167,10 @@ namespace
             MInt16 endPoints[2][3];
             refiner.GetRefinedEndpoints(endPoints);
 
-            QuantizeTo565(endPoints[0]);
-            QuantizeTo565(endPoints[1]);
-
-            IndexSelector<3> selector;
-            selector.Init2(channelWeights, endPoints, nCounts);
-
-            MInt16 indexes[16];
-
-            MFloat error = ParallelMath::MakeFloatZero();
-            for (int px = 0; px < 16; px++)
-            {
-                MInt16 index = selector.SelectIndex(pixels[px]);
-                indexes[px] = index;
-
-                MInt16 reconstructed[3];
-                selector.Reconstruct(index, reconstructed);
-
-                error = error + BCCommon::ComputeError<3>(flags, reconstructed, pixels[px], channelWeights);
-            }
-
-            ParallelMath::FloatCompFlag better = ParallelMath::Less(error, bestError);
-
-            if (ParallelMath::AnySet(better))
-            {
-                ParallelMath::Int16CompFlag betterInt16 = ParallelMath::FloatFlagToInt16(better);
-
-                ParallelMath::ConditionalSet(bestError, better, error);
-
-                for (int ep = 0; ep < 2; ep++)
-                    for (int ch = 0; ch < 3; ch++)
-                        ParallelMath::ConditionalSet(bestEndpoints[ep][ch], betterInt16, endPoints[ep][ch]);
-
-                for (int px = 0; px < 16; px++)
-                    ParallelMath::ConditionalSet(bestIndexes[px], betterInt16, indexes[px]);
-
-                ParallelMath::ConditionalSet(bestRange, betterInt16, ParallelMath::MakeUInt16(nCounts));
-            }
+            TestEndpoints(flags, pixels, endPoints, nCounts, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, nullptr);
         }
 
-        static void PackRGB(DWORD flags, const InputBlock* inputs, uint8_t* packedBlocks, const float channelWeights[4], bool alphaTest, float alphaThreshold)
+        static void PackRGB(DWORD flags, const InputBlock* inputs, uint8_t* packedBlocks, const float channelWeights[4], bool alphaTest, float alphaThreshold, bool exhaustive)
         {
             EndpointSelector<3, 8> endpointSelector;
 
@@ -2204,79 +2227,6 @@ namespace
 
             UnfinishedEndpoints<3> ufep = endpointSelector.GetEndpoints(channelWeights);
 
-            MInt16 sortBins[16];
-
-            {
-                // Compute an 11-bit index, change it to signed, and stuff it in the high bits of the sort bins,
-                // and pack the original indexes into the low bits.
-
-                MInt16 sortEP[2][3];
-                ufep.Finish(0, 11, sortEP[0], sortEP[1]);
-
-                IndexSelector<3> sortSelector;
-                sortSelector.Init2(channelWeights, sortEP, 1 << 11);
-
-                for (int px = 0; px < 16; px++)
-                {
-                    MInt16 sortBin = (sortSelector.SelectIndex(pixels[px]) << 4);
-
-                    if (alphaTest)
-                    {
-                        ParallelMath::Int16CompFlag isTransparent = ParallelMath::Less(pixels[px][3], ParallelMath::MakeUInt16(255));
-
-                        ParallelMath::ConditionalSet(sortBin, isTransparent, ParallelMath::MakeUInt16(-16));
-                    }
-                    
-                    sortBin = sortBin + ParallelMath::MakeUInt16(px);
-
-                    sortBins[px] = sortBin;
-                }
-            }
-
-            // Sort bins
-            for (int sortEnd = 1; sortEnd < 16; sortEnd++)
-            {
-                for (int sortLoc = sortEnd; sortLoc > 0; sortLoc--)
-                {
-                    MInt16 a = sortBins[sortLoc];
-                    MInt16 b = sortBins[sortLoc - 1];
-
-                    sortBins[sortLoc] = ParallelMath::Max(a, b);
-                    sortBins[sortLoc - 1] = ParallelMath::Min(a, b);
-                }
-            }
-
-            MInt16 firstElement = ParallelMath::MakeUInt16(0);
-            for (uint16_t e = 0; e < 16; e++)
-            {
-                ParallelMath::Int16CompFlag isInvalid = ParallelMath::Less(sortBins[e], ParallelMath::MakeUInt16(0));
-                ParallelMath::ConditionalSet(firstElement, isInvalid, ParallelMath::MakeUInt16(e + 1));
-                if (!ParallelMath::AnySet(isInvalid))
-                    break;
-            }
-
-            MInt16 numElements = ParallelMath::MakeUInt16(16) - firstElement;
-
-            MInt16 sortedInputs[16][4];
-
-            for (int e = 0; e < 16; e++)
-            {
-                for (int ch = 0; ch < 4; ch++)
-                    sortedInputs[e][ch] = ParallelMath::MakeUInt16(0);
-            }
-
-            for (int block = 0; block < ParallelMath::ParallelSize; block++)
-            {
-                for (int e = ParallelMath::ExtractUInt16(firstElement, block); e < 16; e++)
-                {
-                    uint16_t sortBin = ParallelMath::ExtractUInt16(sortBins[e], block);
-                    int originalIndex = (sortBin & 15);
-
-                    for (int ch = 0; ch < 4; ch++)
-                        ParallelMath::PutUInt16(sortedInputs[15 - e][ch], block, ParallelMath::ExtractUInt16(pixels[originalIndex][ch], block));
-                }
-            }
-
             MInt16 bestEndpoints[2][3];
             MInt16 bestIndexes[16];
             MInt16 bestRange = ParallelMath::MakeUInt16(0);
@@ -2289,38 +2239,138 @@ namespace
                 for (int ch = 0; ch < 3; ch++)
                     bestEndpoints[ep][ch] = ParallelMath::MakeUInt16(0);
 
-            for (int n0 = 0; n0 <= 15; n0++)
+            if (exhaustive)
             {
-                int remainingFor1 = 16 - n0;
+                MInt16 sortBins[16];
 
-                for (int n1 = 0; n1 <= remainingFor1; n1++)
                 {
-                    int remainingFor2 = 16 - n1 - n0;
+                    // Compute an 11-bit index, change it to signed, stuff it in the high bits of the sort bins,
+                    // and pack the original indexes into the low bits.
 
-                    for (int n2 = 0; n2 <= remainingFor2; n2++)
+                    MInt16 sortEP[2][3];
+                    ufep.Finish2(0, 11, sortEP[0], sortEP[1]);
+
+                    IndexSelector<3> sortSelector;
+                    sortSelector.Init2(channelWeights, sortEP, 1 << 11);
+
+                    for (int px = 0; px < 16; px++)
                     {
-                        int n3 = 16 - n2 - n1 - n0;
+                        MInt16 sortBin = (sortSelector.SelectIndex(pixels[px]) << 4);
 
-                        int counts[4] = { n0, n1, n2, n3 };
+                        if (alphaTest)
+                        {
+                            ParallelMath::Int16CompFlag isTransparent = ParallelMath::Less(pixels[px][3], ParallelMath::MakeUInt16(255));
 
-                        TestCounts(flags, counts, 4, numElements, pixels, alphaTest, sortedInputs, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange);
+                            ParallelMath::ConditionalSet(sortBin, isTransparent, ParallelMath::MakeUInt16(-16));
+                        }
+
+                        sortBin = sortBin + ParallelMath::MakeUInt16(px);
+
+                        sortBins[px] = sortBin;
                     }
                 }
-            }
 
-            for (int n0 = 0; n0 <= 15; n0++)
-            {
-                int remainingFor1 = 16 - n0;
-
-                for (int n1 = 0; n1 <= remainingFor1; n1++)
+                // Sort bins
+                for (int sortEnd = 1; sortEnd < 16; sortEnd++)
                 {
-                    int remainingFor2 = 16 - n1 - n0;
+                    for (int sortLoc = sortEnd; sortLoc > 0; sortLoc--)
+                    {
+                        MInt16 a = sortBins[sortLoc];
+                        MInt16 b = sortBins[sortLoc - 1];
+
+                        sortBins[sortLoc] = ParallelMath::Max(a, b);
+                        sortBins[sortLoc - 1] = ParallelMath::Min(a, b);
+                    }
+                }
+
+                MInt16 firstElement = ParallelMath::MakeUInt16(0);
+                for (uint16_t e = 0; e < 16; e++)
+                {
+                    ParallelMath::Int16CompFlag isInvalid = ParallelMath::Less(sortBins[e], ParallelMath::MakeUInt16(0));
+                    ParallelMath::ConditionalSet(firstElement, isInvalid, ParallelMath::MakeUInt16(e + 1));
+                    if (!ParallelMath::AnySet(isInvalid))
+                        break;
+                }
+
+                MInt16 numElements = ParallelMath::MakeUInt16(16) - firstElement;
+
+                MInt16 sortedInputs[16][4];
+
+                for (int e = 0; e < 16; e++)
+                {
+                    for (int ch = 0; ch < 4; ch++)
+                        sortedInputs[e][ch] = ParallelMath::MakeUInt16(0);
+                }
+
+                for (int block = 0; block < ParallelMath::ParallelSize; block++)
+                {
+                    for (int e = ParallelMath::ExtractUInt16(firstElement, block); e < 16; e++)
+                    {
+                        uint16_t sortBin = ParallelMath::ExtractUInt16(sortBins[e], block);
+                        int originalIndex = (sortBin & 15);
+
+                        for (int ch = 0; ch < 4; ch++)
+                            ParallelMath::PutUInt16(sortedInputs[15 - e][ch], block, ParallelMath::ExtractUInt16(pixels[originalIndex][ch], block));
+                    }
+                }
+
+                for (int n0 = 0; n0 <= 15; n0++)
+                {
+                    int remainingFor1 = 16 - n0;
+
+                    for (int n1 = 0; n1 <= remainingFor1; n1++)
+                    {
+                        int remainingFor2 = 16 - n1 - n0;
+
+                        for (int n2 = 0; n2 <= remainingFor2; n2++)
+                        {
+                            int n3 = 16 - n2 - n1 - n0;
+
+                            int counts[4] = { n0, n1, n2, n3 };
+
+                            TestCounts(flags, counts, 4, numElements, pixels, alphaTest, sortedInputs, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange);
+                        }
+                    }
+                }
+
+                for (int n0 = 0; n0 <= 15; n0++)
+                {
+                    int remainingFor1 = 16 - n0;
+
+                    for (int n1 = 0; n1 <= remainingFor1; n1++)
+                    {
+                        int remainingFor2 = 16 - n1 - n0;
 
                         int n2 = 16 - n1 - n0;
 
-                    int counts[3] = { n0, n1, n2 };
+                        int counts[3] = { n0, n1, n2 };
 
-                    TestCounts(flags, counts, 3, numElements, pixels, alphaTest, sortedInputs, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange);
+                        TestCounts(flags, counts, 3, numElements, pixels, alphaTest, sortedInputs, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange);
+                    }
+                }
+            }
+            else
+            {
+                for (int range = 3; range <= 4; range++)
+                {
+                    int tweakRounds = BCCommon::TweakRoundsForRange(range);
+                    for (int tweak = 0; tweak < tweakRounds; tweak++)
+                    {
+                        MInt16 endPoints[2][3];
+
+                        ufep.Finish2(tweak, range, endPoints[0], endPoints[1]);
+
+                        for (int refine = 0; refine < BCCommon::NumRefineRounds; refine++)
+                        {
+                            EndpointRefiner<3> refiner;
+                            refiner.Init2(range, channelWeights);
+
+                            TestEndpoints(flags, pixels, endPoints, range, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, &refiner);
+
+                            if (refine != BCCommon::NumRefineRounds - 1)
+                                refiner.GetRefinedEndpoints(endPoints);
+                        }
+                    }
                 }
             }
 
@@ -2405,7 +2455,7 @@ namespace
     };
 }
 
-static void PrepareInputBlock(InputBlock inputBlocks[BC7_NUM_PARALLEL_BLOCKS], const XMVECTOR *&pColor, DWORD flags)
+static void PrepareInputBlock(InputBlock inputBlocks[NUM_PARALLEL_BLOCKS], const XMVECTOR *&pColor, DWORD flags)
 {
     for (size_t block = 0; block < ParallelMath::ParallelSize; block++)
     {
@@ -2432,9 +2482,9 @@ void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD 
     assert(pColor);
     assert(pBC);
 
-    for (size_t blockBase = 0; blockBase < BC7_NUM_PARALLEL_BLOCKS; blockBase += ParallelMath::ParallelSize)
+    for (size_t blockBase = 0; blockBase < NUM_PARALLEL_BLOCKS; blockBase += ParallelMath::ParallelSize)
     {
-        InputBlock inputBlocks[BC7_NUM_PARALLEL_BLOCKS];
+        InputBlock inputBlocks[NUM_PARALLEL_BLOCKS];
 
         PrepareInputBlock(inputBlocks, pColor, flags);
 
@@ -2453,16 +2503,24 @@ void DirectX::D3DXEncodeBC1Parallel(uint8_t *pBC, const XMVECTOR *pColor, _In_ f
     assert(pColor);
     assert(pBC);
 
-    for (size_t blockBase = 0; blockBase < BC7_NUM_PARALLEL_BLOCKS; blockBase += ParallelMath::ParallelSize)
+    if (!(flags & TEX_COMPRESS_HIGH_QUALITY))
     {
-        InputBlock inputBlocks[BC7_NUM_PARALLEL_BLOCKS];
+        for (size_t i = 0; i < NUM_PARALLEL_BLOCKS; i++)
+            DirectX::D3DXEncodeBC1(pBC + i * 8, pColor + i * 16, threshold, flags);
+
+        return;
+    }
+
+    for (size_t blockBase = 0; blockBase < NUM_PARALLEL_BLOCKS; blockBase += ParallelMath::ParallelSize)
+    {
+        InputBlock inputBlocks[NUM_PARALLEL_BLOCKS];
 
         PrepareInputBlock(inputBlocks, pColor, flags);
 
         const float perceptualWeights[4] = { 0.2125f / 0.7154f, 1.0f, 0.0721f / 0.7154f, 1.0f };
         const float uniformWeights[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-        S3TCComputer::PackRGB(flags, inputBlocks, pBC, (flags & BC_FLAGS_UNIFORM) ? uniformWeights : perceptualWeights, true, threshold);
+        S3TCComputer::PackRGB(flags, inputBlocks, pBC, (flags & BC_FLAGS_UNIFORM) ? uniformWeights : perceptualWeights, true, threshold, true);
 
         pBC += ParallelMath::ParallelSize * 8;
     }

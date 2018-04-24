@@ -580,7 +580,7 @@ namespace DirectX
         TEX_COMPRESS_BC7_QUICK          = 0x100000,
             // Minimal modes (usually mode 6) for BC7 compression
 
-        TEX_COMPRESS_BC7_HQ             = 0x200000,
+        TEX_COMPRESS_HIGH_QUALITY       = 0x200000,
             // High-quality shaders
 
         TEX_COMPRESS_SRGB_IN            = 0x1000000,

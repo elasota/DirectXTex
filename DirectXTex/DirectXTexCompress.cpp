@@ -30,7 +30,8 @@ namespace
         static_assert(static_cast<int>(TEX_COMPRESS_UNIFORM) == static_cast<int>(BC_FLAGS_UNIFORM), "TEX_COMPRESS_* flags should match BC_FLAGS_*");
         static_assert(static_cast<int>(TEX_COMPRESS_BC7_USE_3SUBSETS) == static_cast<int>(BC_FLAGS_USE_3SUBSETS), "TEX_COMPRESS_* flags should match BC_FLAGS_*");
         static_assert(static_cast<int>(TEX_COMPRESS_BC7_QUICK) == static_cast<int>(BC_FLAGS_FORCE_BC7_MODE6), "TEX_COMPRESS_* flags should match BC_FLAGS_*");
-        return (compress & (BC_FLAGS_DITHER_RGB | BC_FLAGS_DITHER_A | BC_FLAGS_UNIFORM | BC_FLAGS_USE_3SUBSETS | BC_FLAGS_FORCE_BC7_MODE6));
+        static_assert(static_cast<int>(TEX_COMPRESS_HIGH_QUALITY) == static_cast<int>(BC_FLAGS_HIGH_QUALITY), "TEX_COMPRESS_* flags should match BC_FLAGS_*");
+        return (compress & (BC_FLAGS_DITHER_RGB | BC_FLAGS_DITHER_A | BC_FLAGS_UNIFORM | BC_FLAGS_USE_3SUBSETS | BC_FLAGS_FORCE_BC7_MODE6 | BC_FLAGS_HIGH_QUALITY));
     }
 
     inline DWORD GetSRGBFlags(_In_ DWORD compress)
@@ -46,7 +47,7 @@ namespace
         switch (format)
         {
         case DXGI_FORMAT_BC1_UNORM:
-        case DXGI_FORMAT_BC1_UNORM_SRGB:    pfEncode = nullptr;         blocksize = 8;   cflags = 0; nBlocksPerChunk = BC7_NUM_PARALLEL_BLOCKS; break;
+        case DXGI_FORMAT_BC1_UNORM_SRGB:    pfEncode = nullptr;         blocksize = 8;   cflags = 0; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
         case DXGI_FORMAT_BC2_UNORM:
         case DXGI_FORMAT_BC2_UNORM_SRGB:    pfEncode = D3DXEncodeBC2;   blocksize = 16;  cflags = 0; nBlocksPerChunk = 1; break;
         case DXGI_FORMAT_BC3_UNORM:
@@ -58,7 +59,7 @@ namespace
         case DXGI_FORMAT_BC6H_UF16:         pfEncode = D3DXEncodeBC6HU; blocksize = 16;  cflags = 0; nBlocksPerChunk = 1; break;
         case DXGI_FORMAT_BC6H_SF16:         pfEncode = D3DXEncodeBC6HS; blocksize = 16;  cflags = 0; nBlocksPerChunk = 1; break;
         case DXGI_FORMAT_BC7_UNORM:
-        case DXGI_FORMAT_BC7_UNORM_SRGB:    pfEncode = D3DXEncodeBC7Parallel; blocksize = 16; cflags = 0; nBlocksPerChunk = BC7_NUM_PARALLEL_BLOCKS; break;
+        case DXGI_FORMAT_BC7_UNORM_SRGB:    pfEncode = D3DXEncodeBC7Parallel; blocksize = 16; cflags = 0; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
         default:                            pfEncode = nullptr;         blocksize = 0;   cflags = 0; nBlocksPerChunk = 1; return false;
         }
 

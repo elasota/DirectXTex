@@ -1,8 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
+using System.IO;
 using System.Drawing;
 
 namespace analyze
@@ -10,6 +9,12 @@ namespace analyze
     class Program
     {
         static string texConvPath = "Texconv\\bin\\Desktop_2017\\x64\\Release\\texconv.exe";
+
+        enum CompressedFormat
+        {
+            BC7,
+            BC6H,
+        }
 
         struct BenchmarkResult
         {
@@ -95,7 +100,148 @@ namespace analyze
             return Color.FromArgb(a, r, g, b);
         }
 
-        static BenchmarkResult Benchmark(string compressedPath, string originalPath, int uid)
+        static ushort[] LoadHDR(string path, out int width, out int height)
+        {
+            using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read))
+            {
+                DDSFile.DDSHeader header = DDSFile.DDSParser.ReadDDSHeader(fs);
+
+                ushort[] shorts = new ushort[header.width * header.height * 4];
+                byte[] bytes = new byte[shorts.Length * 2];
+
+                fs.Read(bytes, 0, bytes.Length);
+
+                for (int i = 0; i < bytes.Length; i += 2)
+                {
+                    int px = (bytes[i]) | (bytes[i + 1] << 8);
+                    shorts[i / 2] = (ushort)px;
+                }
+
+                width = (int)header.width;
+                height = (int)header.height;
+
+                return shorts;
+            }
+        }
+
+        static double UnpackFP16(ushort v)
+        {
+            bool isNegative = ((v & 0x8000) != 0);
+            int exponent = ((v & 0x7c00) >> 10);
+            int fraction = (v & 0x03ff);
+
+            double ffraction = ((double)fraction) * (1.0 / 1024.0);
+            double f;
+
+            if (exponent == 0)
+            {
+                if (fraction == 0)
+                    return isNegative ? -0.0 : 0.0;
+
+                f = ffraction * (1.0 / 16384.0);
+            }
+            else if (exponent == 0x1f)
+            {
+                if (fraction == 0)
+                    return isNegative ? float.NegativeInfinity : float.PositiveInfinity;
+            
+                return float.NaN;
+            }
+            else
+                f = (float)(1 << exponent) * (1.0 / 32768.0) * (1.0 + ffraction);
+
+            return isNegative ? -f : f;
+        }
+
+        static double PerceptualCurve(double f)
+        {
+            bool isNegative = (f < 0.0f);
+
+            if (isNegative)
+                f = -f;
+
+            f = Math.Pow(f, 1.0f / 2.2f);
+
+            if (isNegative)
+                f = -f;
+
+            return f;
+        }
+
+        static double F16Error(ushort a, ushort b)
+        {
+            if (true)
+            {
+                if (a > b)
+                    return a - b;
+                else
+                    return b - a;
+            }
+            else
+            {
+                double af = PerceptualCurve(UnpackFP16(a));
+                double bf = PerceptualCurve(UnpackFP16(b));
+
+                double diff = af - bf;
+                return diff * diff;
+            }
+        }
+
+        static BenchmarkResult BenchmarkHDR(string compressedPath, string originalPath, int uid)
+        {
+            RunProcess(texConvPath, "-m 1 -f FP16 -px decode_ -y " + compressedPath);
+
+            int lastBackslash = compressedPath.LastIndexOf('\\');
+            string tempPath = "decode_" + compressedPath.Substring(lastBackslash + 1);
+
+            int width;
+            int height;
+            ushort[] compressedPixels = LoadHDR(tempPath, out width, out height);
+            ushort[] originalPixels = LoadHDR(originalPath, out width, out height);
+
+            double worstError = 0.0;
+            int worstX = 0;
+            int worstY = 0;
+
+            double error = 0.0;
+
+            for (int baseY = 0; baseY < height; baseY += 4)
+            {
+                for (int baseX = 0; baseX < width; baseX += 4)
+                {
+                    double blockError = 0.0;
+                    for (int subY = 0; subY < 4; subY++)
+                    {
+                        for (int subX = 0; subX < 4; subX++)
+                        {
+                            int x = baseX + subX;
+                            int y = baseY + subY;
+                            int pxStart = ((y * width) + x) * 4;
+
+                            for (int ch = 0; ch < 4; ch++)
+                                blockError += F16Error(compressedPixels[pxStart + ch], originalPixels[pxStart + ch]);
+                        }
+                    }
+
+                    if (blockError > worstError)
+                    {
+                        worstError = blockError;
+                        worstX = baseX;
+                        worstY = baseY;
+                    }
+
+                    error += blockError;
+                }
+            }
+
+            BenchmarkResult result = new BenchmarkResult(error, worstError, worstX, worstY);
+
+            File.Delete(tempPath);
+
+            return result;
+        }
+
+        static BenchmarkResult BenchmarkLDR(string compressedPath, string originalPath, int uid)
         {
             string compressonatorPath = "C:\\Program Files\\Compressonator\\CompressonatorCLI.exe";
 
@@ -168,15 +314,26 @@ namespace analyze
                 p.WaitForExit();
         }
 
-        static string CompressWithCompressonator(string path, bool hq, bool run)
+        static string ReplaceExtension(string path, string suffix)
+        {
+            int lastPeriod = path.LastIndexOf('.');
+            return path.Substring(0, lastPeriod) + suffix;
+        }
+
+        static string CompressWithCompressonator(CompressedFormat targetFormat, string path, bool hq, bool run)
         {
             string compressonatorPath = "C:\\Program Files\\Compressonator\\CompressonatorCLI.exe";
 
-            string resultPath = path.Replace(".png", hq ? "_chq.dds" : "_c.dds");
+            string resultPath = ReplaceExtension(path, hq ? "_chq.dds" : "_c.dds");
 
             if (run)
             {
-                string args = "-nomipmap -fd BC7 ";
+                string args = "-nomipmap ";
+
+                if (targetFormat == CompressedFormat.BC7)
+                    args += "-fd BC7 ";
+                else if (targetFormat == CompressedFormat.BC6H)
+                    args += "-fd BC6H ";
 
                 if (hq)
                     args += "-Quality 1.0 ";
@@ -187,21 +344,29 @@ namespace analyze
             return resultPath;
         }
 
-        static string CompressWithNVTT(string path, bool run)
+        static string CompressWithNVTT(CompressedFormat targetFormat, string path, bool run)
         {
             string nvttPath = "tests\\nvtt\\nvcompress.exe";
 
-            string resultPath = path.Replace(".png", "_nvtt.dds");
+            string resultPath = ReplaceExtension(path, "_nvtt.dds");
 
             if (run)
-                RunProcess(nvttPath, "-bc7 -nomips -alpha " + path + " " + resultPath);
+            {
+                string args = "-nomips -alpha ";
+                if (targetFormat == CompressedFormat.BC7)
+                    args += "-bc7 ";
+                else if (targetFormat == CompressedFormat.BC6H)
+                    args += "-bc6 ";
+
+                RunProcess(nvttPath, args + path + " " + resultPath);
+            }
 
             return resultPath;
         }
 
-        static string CompressWithDirectXTex(string path, bool useGPU, bool useHQ, bool run)
+        static string CompressWithDirectXTex(CompressedFormat targetFormat, string path, bool useGPU, bool useHQ, bool run)
         {
-            string resultPath = path.Replace(".png", "");
+            string resultPath = ReplaceExtension(path, "");
             if (useGPU)
             {
                 if (useHQ)
@@ -215,7 +380,13 @@ namespace analyze
 
             if (run)
             {
-                string args = "-srgbi -srgbo -m 1 -f BC7_UNORM -y -bcmax -bcuniform ";
+                string args = "-m 1 -y -bcmax -bcuniform ";
+
+                if (targetFormat == CompressedFormat.BC7)
+                    args += "-srgbi -srgbo -f BC7_UNORM ";
+                else if (targetFormat == CompressedFormat.BC6H)
+                    args += "-f BC6H_UF16 ";
+
                 if (!useGPU)
                     args += "-nogpu ";
                 if (useHQ)
@@ -240,7 +411,7 @@ namespace analyze
         {
             string fastcPath = "x64\\Release\\FasTCTest.exe";
 
-            string resultPath = path.Replace(".png", "_fastc.dds");
+            string resultPath = ReplaceExtension(path, "_fastc.dds");
 
             if (run)
                 RunProcess(fastcPath, path + " " + resultPath);
@@ -252,7 +423,7 @@ namespace analyze
         {
             string fastcPath = "x64\\Release\\ISPCTextureCompressor.exe";
 
-            string resultPath = path.Replace(".png", "_ispc.dds");
+            string resultPath = ReplaceExtension(path, "_ispc.dds");
 
             if (run)
                 RunProcess(fastcPath, path + " " + resultPath);
@@ -260,17 +431,7 @@ namespace analyze
             return resultPath;
         }
 
-        static string CompressWithCCPU(string path, bool run)
-        {
-            string ccPath = "x64\\Release\\ConvectionCPUTest.exe";
-
-            string resultPath = path.Replace(".png", "_ccpu.dds");
-
-            if (run)
-                RunProcess(ccPath, path + " " + resultPath);
-
-            return resultPath;
-        }
+        delegate BenchmarkResult BenchmarkDelegate(string compressedPath, string originalPath, int uid);
 
         static void Main(string[] args)
         {
@@ -281,103 +442,133 @@ namespace analyze
             bool runDXHQ = false;
             bool runFasTC = false;
             bool runISPC = false;
-            bool runCCPU = true;
             bool runConversions = false;
 
             string[] testImages = {
-                "kodim01.png", "kodim02.png", "kodim03.png", "kodim04.png", "kodim05.png", "kodim06.png",
-                "kodim07.png", "kodim08.png", "kodim09.png", "kodim10.png", "kodim11.png", "kodim12.png",
-                "kodim13.png", "kodim14.png", "kodim15.png", "kodim16.png", "kodim17.png", "kodim18.png",
-                "kodim19.png", "kodim20.png", "kodim21.png", "kodim22.png", "kodim23.png", "kodim24.png"
+                //"kodim01.png", "kodim02.png", "kodim03.png", "kodim04.png", "kodim05.png", "kodim06.png",
+                //"kodim07.png", "kodim08.png", "kodim09.png", "kodim10.png", "kodim11.png", "kodim12.png",
+                //"kodim13.png", "kodim14.png", "kodim15.png", "kodim16.png", "kodim17.png", "kodim18.png",
+                //"kodim19.png", "kodim20.png", "kodim21.png", "kodim22.png", "kodim23.png", "kodim24.png"
+                "mossy_forest_1k.dds",
+                "pillars_1k.dds",
+                "simons_town_rocks_1k.dds",
+                "tears_of_steel_bridge_1k.dds",
             };
 
             string testDir = "tests\\";
 
-
+            CompressedFormat targetFormat = CompressedFormat.BC6H;
+            BenchmarkDelegate benchmarkFunc = BenchmarkHDR;
+            bool testAlpha = false;
+            
             Dictionary<ImageDimensions, List<string>> imagesBySize = new Dictionary<ImageDimensions, List<string>>();
 
             List<string> testImagesFinal = new List<string>();
 
             foreach (string path in testImages)
             {
-                using (Bitmap img = (Bitmap)Bitmap.FromFile(testDir + path))
+                if (testAlpha)
                 {
-                    ImageDimensions dim = new ImageDimensions(img.Width, img.Height);
-
-                    List<string> paths;
-                    if (!imagesBySize.TryGetValue(dim, out paths))
+                    using (Bitmap img = (Bitmap)Bitmap.FromFile(testDir + path))
                     {
-                        paths = new List<string>();
-                        imagesBySize.Add(dim, paths);
+                        ImageDimensions dim = new ImageDimensions(img.Width, img.Height);
+
+                        List<string> paths;
+                        if (!imagesBySize.TryGetValue(dim, out paths))
+                        {
+                            paths = new List<string>();
+                            imagesBySize.Add(dim, paths);
+                        }
+                        paths.Add(path);
                     }
-                    paths.Add(path);
                 }
 
                 testImagesFinal.Add(testDir + path);
             }
 
-            foreach (KeyValuePair<ImageDimensions, List<string>> pair in imagesBySize)
+            if (testAlpha)
             {
-                List<string> paths = pair.Value;
-
-                Parallel.For(0, paths.Count, i =>
+                foreach (KeyValuePair<ImageDimensions, List<string>> pair in imagesBySize)
                 {
-                    string rgbImage = paths[i];
-                    string alphaImage = paths[(i + 1) % paths.Count];
-                    string blendImage = rgbImage.Replace(".png", "_alpha.png");
+                    List<string> paths = pair.Value;
 
-                    if (runConversions)
-                        MakeAlphaImage(testDir + rgbImage, testDir + alphaImage, testDir + blendImage);
-
-                    lock (testImagesFinal)
+                    Parallel.For(0, paths.Count, i =>
                     {
-                        testImagesFinal.Add(testDir + blendImage);
-                    }
-                });
+                        string rgbImage = paths[i];
+                        string alphaImage = paths[(i + 1) % paths.Count];
+                        string blendImage = rgbImage.Replace(".png", "_alpha.png");
+
+                        if (runConversions)
+                            MakeAlphaImage(testDir + rgbImage, testDir + alphaImage, testDir + blendImage);
+
+                        lock (testImagesFinal)
+                        {
+                            testImagesFinal.Add(testDir + blendImage);
+                        }
+                    });
+                }
             }
 
             Dictionary<string, List<BenchmarkResult>> results = new Dictionary<string, List<BenchmarkResult>>();
 
-            Parallel.For(0, testImagesFinal.Count, i =>
-            //for (int i = 0; i < testImagesFinal.Count; i++)
+            List<string> headers = new List<string>();
+
+            //Parallel.For(0, testImagesFinal.Count, i =>
+            for (int i = 0; i < testImagesFinal.Count; i++)
             {
                 string path = testImagesFinal[i];
 
                 List<BenchmarkResult> fileResults = new List<BenchmarkResult>();
 
-                string nvttPath = CompressWithNVTT(path, runNVTT);
-                fileResults.Add(Benchmark(nvttPath, path, i));
+                string nvttPath = CompressWithNVTT(targetFormat, path, runNVTT);
+                fileResults.Add(benchmarkFunc(nvttPath, path, i));
+                if (i == 0)
+                    headers.Add("nvtt");
 
-                string compressonatorPath = CompressWithCompressonator(path, false, runCompressonator);
-                fileResults.Add(Benchmark(compressonatorPath, path, i));
+                string compressonatorPath = CompressWithCompressonator(targetFormat, path, false, runCompressonator);
+                fileResults.Add(benchmarkFunc(compressonatorPath, path, i));
+                if (i == 0)
+                    headers.Add("cmp");
 
-                string compressonatorHQPath = CompressWithCompressonator(path, true, runCompressonator);
-                fileResults.Add(Benchmark(compressonatorHQPath, path, i));
+                string compressonatorHQPath = CompressWithCompressonator(targetFormat, path, true, runCompressonator);
+                fileResults.Add(benchmarkFunc(compressonatorHQPath, path, i));
+                if (i == 0)
+                    headers.Add("cmp_hq");
 
-                string directXTexHQPath = CompressWithDirectXTex(path, true, true, runDXHQ);
-                fileResults.Add(Benchmark(directXTexHQPath, path, i));
+                string directXTexHQPath = CompressWithDirectXTex(targetFormat, path, true, true, runDXHQ);
+                fileResults.Add(benchmarkFunc(directXTexHQPath, path, i));
+                if (i == 0)
+                    headers.Add("dxhq");
 
-                string directXTexCPUPath = CompressWithDirectXTex(path, false, false, runDXCPU);
-                fileResults.Add(Benchmark(directXTexCPUPath, path, i));
+                string directXTexCPUPath = CompressWithDirectXTex(targetFormat, path, false, false, runDXCPU);
+                fileResults.Add(benchmarkFunc(directXTexCPUPath, path, i));
+                if (i == 0)
+                    headers.Add("dxcpu");
 
-                string directXTexGPUPath = CompressWithDirectXTex(path, true, false, runDX);
-                fileResults.Add(Benchmark(directXTexGPUPath, path, i));
+                string directXTexGPUPath = CompressWithDirectXTex(targetFormat, path, true, false, runDX);
+                fileResults.Add(benchmarkFunc(directXTexGPUPath, path, i));
+                if (i == 0)
+                    headers.Add("dxgpu");
 
-                string fastcPath = CompressWithFasTC(path, runFasTC);
-                fileResults.Add(Benchmark(fastcPath, path, i));
+                if (targetFormat == CompressedFormat.BC7)
+                {
+                    string fastcPath = CompressWithFasTC(path, runFasTC);
+                    fileResults.Add(benchmarkFunc(fastcPath, path, i));
+                    if (i == 0)
+                        headers.Add("fastc");
 
-                string ispcPath = CompressWithISPC(path, runISPC);
-                fileResults.Add(Benchmark(ispcPath, path, i));
-
-                string ccpuPath = CompressWithCCPU(path, runCCPU);
-                fileResults.Add(Benchmark(ccpuPath, path, i));
+                    string ispcPath = CompressWithISPC(path, runISPC);
+                    fileResults.Add(benchmarkFunc(ispcPath, path, i));
+                    if (i == 0)
+                        headers.Add("ispc");
+                }
 
                 lock (results)
                 {
                     results.Add(path, fileResults);
                 }
             }
-            );
+            //);
 
             List<string> sortedFiles = new List<string>();
             foreach (string k in results.Keys)
@@ -399,9 +590,16 @@ namespace analyze
 
             using (System.IO.StreamWriter writer = new System.IO.StreamWriter("benchmark.csv"))
             {
-                writer.WriteLine(",nvtt,,,,compressonator,,,,compressonator_hq,,,,dxhq,,,,dxcpu,,,,dxgpu,,,,fastc,,,,ispc_slow,,,,ccpu,,,,");
+                writer.Write(",");
+                foreach (string str in headers)
+                {
+                    writer.Write(str);
+                    writer.Write(",,,,");
+                }
+                writer.WriteLine();
+
                 writer.Write("filename");
-                for (int i = 0; i < 8; i++)
+                for (int i = 0; i < headers.Count; i++)
                     writer.Write(",error,worst,x,y");
                 writer.WriteLine();
 

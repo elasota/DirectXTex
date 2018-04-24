@@ -1,238 +1,12 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Drawing;
+using DDSFile;
 
 namespace InspectDDS
 {
-    public struct DDSHeader
-    {
-        public uint size;
-        public uint flags;
-        public uint height;
-        public uint width;
-        public uint pitchOrLinearSize;
-        public uint depth;
-        public uint mipMapCount;
-        public DDSPixelFormat pixelFormat;
-        public uint caps;
-        public uint caps2;
-        public uint caps3;
-        public uint caps4;
-    }
-
-    public struct DDSPixelFormat
-    {
-        public uint size;
-        public uint flags;
-        public uint fourCC;
-        public uint rgbBitCount;
-        public uint rBitMask;
-        public uint gBitMask;
-        public uint bBitMask;
-        public uint aBitMask;
-    }
-
-    public enum ResourceDimension
-    {
-        D3D10_RESOURCE_DIMENSION_UNKNOWN = 0,
-        D3D10_RESOURCE_DIMENSION_BUFFER = 1,
-        D3D10_RESOURCE_DIMENSION_TEXTURE1D = 2,
-        D3D10_RESOURCE_DIMENSION_TEXTURE2D = 3,
-        D3D10_RESOURCE_DIMENSION_TEXTURE3D = 4
-    }
-
-    public enum DXGIFormat
-    {
-        DXGI_FORMAT_UNKNOWN = 0,
-        DXGI_FORMAT_R32G32B32A32_TYPELESS = 1,
-        DXGI_FORMAT_R32G32B32A32_FLOAT = 2,
-        DXGI_FORMAT_R32G32B32A32_UINT = 3,
-        DXGI_FORMAT_R32G32B32A32_SINT = 4,
-        DXGI_FORMAT_R32G32B32_TYPELESS = 5,
-        DXGI_FORMAT_R32G32B32_FLOAT = 6,
-        DXGI_FORMAT_R32G32B32_UINT = 7,
-        DXGI_FORMAT_R32G32B32_SINT = 8,
-        DXGI_FORMAT_R16G16B16A16_TYPELESS = 9,
-        DXGI_FORMAT_R16G16B16A16_FLOAT = 10,
-        DXGI_FORMAT_R16G16B16A16_UNORM = 11,
-        DXGI_FORMAT_R16G16B16A16_UINT = 12,
-        DXGI_FORMAT_R16G16B16A16_SNORM = 13,
-        DXGI_FORMAT_R16G16B16A16_SINT = 14,
-        DXGI_FORMAT_R32G32_TYPELESS = 15,
-        DXGI_FORMAT_R32G32_FLOAT = 16,
-        DXGI_FORMAT_R32G32_UINT = 17,
-        DXGI_FORMAT_R32G32_SINT = 18,
-        DXGI_FORMAT_R32G8X24_TYPELESS = 19,
-        DXGI_FORMAT_D32_FLOAT_S8X24_UINT = 20,
-        DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS = 21,
-        DXGI_FORMAT_X32_TYPELESS_G8X24_UINT = 22,
-        DXGI_FORMAT_R10G10B10A2_TYPELESS = 23,
-        DXGI_FORMAT_R10G10B10A2_UNORM = 24,
-        DXGI_FORMAT_R10G10B10A2_UINT = 25,
-        DXGI_FORMAT_R11G11B10_FLOAT = 26,
-        DXGI_FORMAT_R8G8B8A8_TYPELESS = 27,
-        DXGI_FORMAT_R8G8B8A8_UNORM = 28,
-        DXGI_FORMAT_R8G8B8A8_UNORM_SRGB = 29,
-        DXGI_FORMAT_R8G8B8A8_UINT = 30,
-        DXGI_FORMAT_R8G8B8A8_SNORM = 31,
-        DXGI_FORMAT_R8G8B8A8_SINT = 32,
-        DXGI_FORMAT_R16G16_TYPELESS = 33,
-        DXGI_FORMAT_R16G16_FLOAT = 34,
-        DXGI_FORMAT_R16G16_UNORM = 35,
-        DXGI_FORMAT_R16G16_UINT = 36,
-        DXGI_FORMAT_R16G16_SNORM = 37,
-        DXGI_FORMAT_R16G16_SINT = 38,
-        DXGI_FORMAT_R32_TYPELESS = 39,
-        DXGI_FORMAT_D32_FLOAT = 40,
-        DXGI_FORMAT_R32_FLOAT = 41,
-        DXGI_FORMAT_R32_UINT = 42,
-        DXGI_FORMAT_R32_SINT = 43,
-        DXGI_FORMAT_R24G8_TYPELESS = 44,
-        DXGI_FORMAT_D24_UNORM_S8_UINT = 45,
-        DXGI_FORMAT_R24_UNORM_X8_TYPELESS = 46,
-        DXGI_FORMAT_X24_TYPELESS_G8_UINT = 47,
-        DXGI_FORMAT_R8G8_TYPELESS = 48,
-        DXGI_FORMAT_R8G8_UNORM = 49,
-        DXGI_FORMAT_R8G8_UINT = 50,
-        DXGI_FORMAT_R8G8_SNORM = 51,
-        DXGI_FORMAT_R8G8_SINT = 52,
-        DXGI_FORMAT_R16_TYPELESS = 53,
-        DXGI_FORMAT_R16_FLOAT = 54,
-        DXGI_FORMAT_D16_UNORM = 55,
-        DXGI_FORMAT_R16_UNORM = 56,
-        DXGI_FORMAT_R16_UINT = 57,
-        DXGI_FORMAT_R16_SNORM = 58,
-        DXGI_FORMAT_R16_SINT = 59,
-        DXGI_FORMAT_R8_TYPELESS = 60,
-        DXGI_FORMAT_R8_UNORM = 61,
-        DXGI_FORMAT_R8_UINT = 62,
-        DXGI_FORMAT_R8_SNORM = 63,
-        DXGI_FORMAT_R8_SINT = 64,
-        DXGI_FORMAT_A8_UNORM = 65,
-        DXGI_FORMAT_R1_UNORM = 66,
-        DXGI_FORMAT_R9G9B9E5_SHAREDEXP = 67,
-        DXGI_FORMAT_R8G8_B8G8_UNORM = 68,
-        DXGI_FORMAT_G8R8_G8B8_UNORM = 69,
-        DXGI_FORMAT_BC1_TYPELESS = 70,
-        DXGI_FORMAT_BC1_UNORM = 71,
-        DXGI_FORMAT_BC1_UNORM_SRGB = 72,
-        DXGI_FORMAT_BC2_TYPELESS = 73,
-        DXGI_FORMAT_BC2_UNORM = 74,
-        DXGI_FORMAT_BC2_UNORM_SRGB = 75,
-        DXGI_FORMAT_BC3_TYPELESS = 76,
-        DXGI_FORMAT_BC3_UNORM = 77,
-        DXGI_FORMAT_BC3_UNORM_SRGB = 78,
-        DXGI_FORMAT_BC4_TYPELESS = 79,
-        DXGI_FORMAT_BC4_UNORM = 80,
-        DXGI_FORMAT_BC4_SNORM = 81,
-        DXGI_FORMAT_BC5_TYPELESS = 82,
-        DXGI_FORMAT_BC5_UNORM = 83,
-        DXGI_FORMAT_BC5_SNORM = 84,
-        DXGI_FORMAT_B5G6R5_UNORM = 85,
-        DXGI_FORMAT_B5G5R5A1_UNORM = 86,
-        DXGI_FORMAT_B8G8R8A8_UNORM = 87,
-        DXGI_FORMAT_B8G8R8X8_UNORM = 88,
-        DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM = 89,
-        DXGI_FORMAT_B8G8R8A8_TYPELESS = 90,
-        DXGI_FORMAT_B8G8R8A8_UNORM_SRGB = 91,
-        DXGI_FORMAT_B8G8R8X8_TYPELESS = 92,
-        DXGI_FORMAT_B8G8R8X8_UNORM_SRGB = 93,
-        DXGI_FORMAT_BC6H_TYPELESS = 94,
-        DXGI_FORMAT_BC6H_UF16 = 95,
-        DXGI_FORMAT_BC6H_SF16 = 96,
-        DXGI_FORMAT_BC7_TYPELESS = 97,
-        DXGI_FORMAT_BC7_UNORM = 98,
-        DXGI_FORMAT_BC7_UNORM_SRGB = 99,
-        DXGI_FORMAT_AYUV = 100,
-        DXGI_FORMAT_Y410 = 101,
-        DXGI_FORMAT_Y416 = 102,
-        DXGI_FORMAT_NV12 = 103,
-        DXGI_FORMAT_P010 = 104,
-        DXGI_FORMAT_P016 = 105,
-        DXGI_FORMAT_420_OPAQUE = 106,
-        DXGI_FORMAT_YUY2 = 107,
-        DXGI_FORMAT_Y210 = 108,
-        DXGI_FORMAT_Y216 = 109,
-        DXGI_FORMAT_NV11 = 110,
-        DXGI_FORMAT_AI44 = 111,
-        DXGI_FORMAT_IA44 = 112,
-        DXGI_FORMAT_P8 = 113,
-        DXGI_FORMAT_A8P8 = 114,
-        DXGI_FORMAT_B4G4R4A4_UNORM = 115,
-        DXGI_FORMAT_P208 = 130,
-        DXGI_FORMAT_V208 = 131,
-        DXGI_FORMAT_V408 = 132,
-    }
-
-    public struct DDSHeaderDXT10
-    {
-        public DXGIFormat dxgiFormat;
-        public ResourceDimension resourceDimension;
-        public uint miscFlag;
-        public uint arraySize;
-        public uint miscFlags2;
-    }
-
-
     class Program
     {
-        static uint ReadUInt32(FileStream fs)
-        {
-            byte[] buffer = new byte[4];
-            fs.Read(buffer, 0, 4);
-            return (uint)(buffer[0] | (buffer[1] << 8) | (buffer[2] << 16) | (buffer[3] << 24));
-        }
-
-        static DDSPixelFormat ReadDDSPixelFormat(FileStream fs)
-        {
-            DDSPixelFormat pixelFormat;
-
-            pixelFormat.size = ReadUInt32(fs);
-            pixelFormat.flags = ReadUInt32(fs);
-            pixelFormat.fourCC = ReadUInt32(fs);
-            pixelFormat.rgbBitCount = ReadUInt32(fs);
-            pixelFormat.rBitMask = ReadUInt32(fs);
-            pixelFormat.gBitMask = ReadUInt32(fs);
-            pixelFormat.bBitMask = ReadUInt32(fs);
-            pixelFormat.aBitMask = ReadUInt32(fs);
-
-            return pixelFormat;
-        }
-
-        static DDSHeader ReadDDSHeader(FileStream fs)
-        {
-            DDSHeader header;
-            header.size = ReadUInt32(fs);
-            header.flags = ReadUInt32(fs);
-            header.height = ReadUInt32(fs);
-            header.width = ReadUInt32(fs);
-            header.pitchOrLinearSize = ReadUInt32(fs);
-            header.depth = ReadUInt32(fs);
-            header.mipMapCount = ReadUInt32(fs);
-            fs.Seek(11 * 4, SeekOrigin.Current);
-            header.pixelFormat = ReadDDSPixelFormat(fs);
-            header.caps = ReadUInt32(fs);
-            header.caps2 = ReadUInt32(fs);
-            header.caps3 = ReadUInt32(fs);
-            header.caps4 = ReadUInt32(fs);
-            fs.Seek(4, SeekOrigin.Current);
-
-            return header;
-        }
-
-        static DDSHeaderDXT10 ReadDDSHeader10(FileStream fs)
-        {
-            DDSHeaderDXT10 header;
-            header.dxgiFormat = (DXGIFormat)ReadUInt32(fs);
-            header.resourceDimension = (ResourceDimension)ReadUInt32(fs);
-            header.miscFlag = ReadUInt32(fs);
-            header.arraySize = ReadUInt32(fs);
-            header.miscFlags2 = ReadUInt32(fs);
-
-            return header;
-        }
-
         public enum PBitMode
         {
             PerEndpoint,
@@ -246,7 +20,6 @@ namespace InspectDDS
             Combined,
             Separate
         }
-
 
         public struct BC7Mode
         {
@@ -404,13 +177,15 @@ namespace InspectDDS
             {
                 pos = fs.Position;
 
-                uint a = ReadUInt32(fs);
-                uint b = ReadUInt32(fs);
-                uint c = ReadUInt32(fs);
-                uint d = ReadUInt32(fs);
+                byte[] bytes = new byte[8];
 
-                low = ((((ulong)b) << 32) | ((ulong)a));
-                high = ((((ulong)d) << 32) | ((ulong)c));
+                fs.Read(bytes, 0, 8);
+                for (int i = 0; i < 8; i++)
+                    low |= ((ulong)bytes[i]) << (i * 8);
+
+                fs.Read(bytes, 0, 8);
+                for (int i = 0; i < 8; i++)
+                    high |= ((ulong)bytes[i]) << (i * 8);
             }
 
             public uint ReadBits(uint numBits)
@@ -469,9 +244,8 @@ namespace InspectDDS
         {
             using (FileStream inStream = new FileStream(args[0], FileMode.Open, FileAccess.Read))
             {
-                uint magic = ReadUInt32(inStream);
-                DDSHeader header = ReadDDSHeader(inStream);
-                DDSHeaderDXT10 header10 = ReadDDSHeader10(inStream);
+                DDSHeader header = DDSParser.ReadDDSHeader(inStream);
+                DDSHeaderDXT10 header10 = DDSParser.ReadDDSHeader10(inStream);
 
                 uint width = header.width;
                 uint height = header.height;

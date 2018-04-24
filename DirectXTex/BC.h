@@ -25,7 +25,7 @@ namespace DirectX
 #define NUM_PIXELS_PER_BLOCK 16
 #define MAX_PARALLEL_BLOCKS 8
 #define MAX_BLOCK_SIZE 16
-#define BC7_NUM_PARALLEL_BLOCKS 8
+#define NUM_PARALLEL_BLOCKS 8
 
 //-------------------------------------------------------------------------------------
 // Constants
@@ -39,6 +39,7 @@ enum BC_FLAGS
     BC_FLAGS_UNIFORM            = 0x40000,  // By default, uses perceptual weighting for BC1-3; this flag makes it a uniform weighting
     BC_FLAGS_USE_3SUBSETS       = 0x80000,  // By default, BC7 skips mode 0 & 2; this flag adds those modes back
     BC_FLAGS_FORCE_BC7_MODE6    = 0x100000, // BC7 should only use mode 6; skip other modes
+    BC_FLAGS_HIGH_QUALITY       = 0x200000, // Use slower, higher-quality encoding
 };
 
 //-------------------------------------------------------------------------------------

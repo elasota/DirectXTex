@@ -4789,7 +4789,9 @@ HRESULT DirectX::Convert(
 
     WICPixelFormatGUID pfGUID, targetGUID;
     bool usewic = !metadata.IsPMAlpha() && UseWICConversion(filter, metadata.format, format, pfGUID, targetGUID);
+    usewic = false;
 
+    usewic = false;
     switch (metadata.dimension)
     {
     case TEX_DIMENSION_TEXTURE1D:
