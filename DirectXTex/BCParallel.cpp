@@ -816,7 +816,7 @@ namespace
                 {
                     sum = sum + inVec[col] * m_values[index];
                     if (col >= row)
-                        index += col;
+                        index += col + 1;
                     else
                         index++;
                 }
@@ -875,7 +875,7 @@ namespace
             for (int ch = 0; ch < TVectorSize; ch++)
             {
                 MFloat min = m_centroid[ch] + m_direction[ch] * m_minDist;
-                MFloat max = m_centroid[ch] + m_direction[ch] * (m_maxDist - m_minDist);
+                MFloat max = m_centroid[ch] + m_direction[ch] * m_maxDist;
 
                 float safeWeight = channelWeights[ch];
                 if (safeWeight == 0.f)
@@ -1470,7 +1470,7 @@ namespace
                         MInt16 baseEP[3][2][4];
 
                         for (int subset = 0; subset < numSubsets; subset++)
-                            unfinishedEPs[subset].Finish2(tweak, 1 <<indexPrec, baseEP[subset][0], baseEP[subset][1]);
+                            unfinishedEPs[subset].Finish2(tweak, 1 << indexPrec, baseEP[subset][0], baseEP[subset][1]);
 
                         for (int pIter = 0; pIter < parityBitMax; pIter++)
                         {
