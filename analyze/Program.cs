@@ -8,7 +8,9 @@ namespace analyze
 {
     class Program
     {
-        static string texConvPath = "Texconv\\bin\\Desktop_2017\\x64\\Release\\texconv.exe";
+        static string texConvCVTTPath = "Texconv\\bin\\Desktop_2017\\x64\\Release\\texconv.exe";
+        static string texConvStockPath = "Tests\\Stock\\texconv.exe";
+        static string texConvRGPath = "Tests\\Stock\\texconv-rg.exe";
 
         enum CompressedFormat
         {
@@ -189,7 +191,7 @@ namespace analyze
 
         static BenchmarkResult BenchmarkHDR(string compressedPath, string originalPath, int uid)
         {
-            RunProcess(texConvPath, "-m 1 -f FP16 -px decode_ -y " + compressedPath);
+            RunProcess(texConvCVTTPath, "-m 1 -f FP16 -px decode_ -y " + compressedPath);
 
             int lastBackslash = compressedPath.LastIndexOf('\\');
             string tempPath = "decode_" + compressedPath.Substring(lastBackslash + 1);
@@ -364,19 +366,11 @@ namespace analyze
             return resultPath;
         }
 
-        static string CompressWithDirectXTex(CompressedFormat targetFormat, string path, bool useGPU, bool useHQ, bool run)
+        static string CompressWithDirectXTex(CompressedFormat targetFormat, string path, string exePath, string suffix, bool useGPU, bool useHQ, bool run)
         {
             string resultPath = ReplaceExtension(path, "");
-            if (useGPU)
-            {
-                if (useHQ)
-                    resultPath += "_dxhq";
-                else
-                    resultPath += "_dxgpu";
-            }
-            else
-                resultPath += "_dxcpu";
-            resultPath += ".dds";
+
+            resultPath += suffix + ".dds";
 
             if (run)
             {
@@ -393,7 +387,7 @@ namespace analyze
                     args += "-bchq ";
                 args += path;
 
-                RunProcess(texConvPath, args);
+                RunProcess(exePath, args);
 
                 int lastSlash = path.LastIndexOf('\\');
                 string outputPath = path.Substring(lastSlash + 1).Replace(".png", ".DDS");
@@ -437,7 +431,8 @@ namespace analyze
         {
             bool runCompressonator = false;
             bool runNVTT = false;
-            bool runDXCPU = false;
+            bool runDXCPU = true;
+            bool runDXCPU_Stock = false;
             bool runDX = false;
             bool runDXHQ = false;
             bool runFasTC = false;
@@ -445,21 +440,21 @@ namespace analyze
             bool runConversions = false;
 
             string[] testImages = {
-                //"kodim01.png", "kodim02.png", "kodim03.png", "kodim04.png", "kodim05.png", "kodim06.png",
-                //"kodim07.png", "kodim08.png", "kodim09.png", "kodim10.png", "kodim11.png", "kodim12.png",
-                //"kodim13.png", "kodim14.png", "kodim15.png", "kodim16.png", "kodim17.png", "kodim18.png",
-                //"kodim19.png", "kodim20.png", "kodim21.png", "kodim22.png", "kodim23.png", "kodim24.png"
-                "mossy_forest_1k.dds",
-                "pillars_1k.dds",
-                "simons_town_rocks_1k.dds",
-                "tears_of_steel_bridge_1k.dds",
+                "kodim01.png", "kodim02.png", "kodim03.png", "kodim04.png", "kodim05.png", "kodim06.png",
+                "kodim07.png", "kodim08.png", "kodim09.png", "kodim10.png", "kodim11.png", "kodim12.png",
+                "kodim13.png", "kodim14.png", "kodim15.png", "kodim16.png", "kodim17.png", "kodim18.png",
+                "kodim19.png", "kodim20.png", "kodim21.png", "kodim22.png", "kodim23.png", "kodim24.png"
+                //"mossy_forest_1k.dds",
+                //"pillars_1k.dds",
+                //"simons_town_rocks_1k.dds",
+                //"tears_of_steel_bridge_1k.dds",
             };
 
             string testDir = "tests\\";
 
-            CompressedFormat targetFormat = CompressedFormat.BC6H;
-            BenchmarkDelegate benchmarkFunc = BenchmarkHDR;
-            bool testAlpha = false;
+            CompressedFormat targetFormat = CompressedFormat.BC7;
+            BenchmarkDelegate benchmarkFunc = BenchmarkLDR;
+            bool testAlpha = true;
             
             Dictionary<ImageDimensions, List<string>> imagesBySize = new Dictionary<ImageDimensions, List<string>>();
 
@@ -513,8 +508,8 @@ namespace analyze
 
             List<string> headers = new List<string>();
 
-            //Parallel.For(0, testImagesFinal.Count, i =>
-            for (int i = 0; i < testImagesFinal.Count; i++)
+            Parallel.For(0, testImagesFinal.Count, i =>
+            //for (int i = 0; i < testImagesFinal.Count; i++)
             {
                 string path = testImagesFinal[i];
 
@@ -535,20 +530,30 @@ namespace analyze
                 if (i == 0)
                     headers.Add("cmp_hq");
 
-                string directXTexHQPath = CompressWithDirectXTex(targetFormat, path, true, true, runDXHQ);
+                string directXTexHQPath = CompressWithDirectXTex(targetFormat, path, texConvCVTTPath, "_dxhq", true, true, runDXHQ);
                 fileResults.Add(benchmarkFunc(directXTexHQPath, path, i));
                 if (i == 0)
                     headers.Add("dxhq");
 
-                string directXTexCPUPath = CompressWithDirectXTex(targetFormat, path, false, false, runDXCPU);
+                string directXTexCPUPath = CompressWithDirectXTex(targetFormat, path, texConvCVTTPath, "_dxcpu", false, false, runDXCPU);
                 fileResults.Add(benchmarkFunc(directXTexCPUPath, path, i));
                 if (i == 0)
                     headers.Add("dxcpu");
 
-                string directXTexGPUPath = CompressWithDirectXTex(targetFormat, path, true, false, runDX);
+                string directXTexGPUPath = CompressWithDirectXTex(targetFormat, path, texConvCVTTPath, "_dxgpu", true, false, runDX);
                 fileResults.Add(benchmarkFunc(directXTexGPUPath, path, i));
                 if (i == 0)
                     headers.Add("dxgpu");
+
+                string directXTexStockPath = CompressWithDirectXTex(targetFormat, path, texConvStockPath, "_dxstock", false, false, runDXCPU_Stock);
+                fileResults.Add(benchmarkFunc(directXTexStockPath, path, i));
+                if (i == 0)
+                    headers.Add("dxcpustock");
+
+                string directXTexRGPath = CompressWithDirectXTex(targetFormat, path, texConvRGPath, "_dxrg", false, false, runDXCPU_Stock);
+                fileResults.Add(benchmarkFunc(directXTexRGPath, path, i));
+                if (i == 0)
+                    headers.Add("dxcpurg");
 
                 if (targetFormat == CompressedFormat.BC7)
                 {
@@ -568,7 +573,7 @@ namespace analyze
                     results.Add(path, fileResults);
                 }
             }
-            //);
+            );
 
             List<string> sortedFiles = new List<string>();
             foreach (string k in results.Keys)
