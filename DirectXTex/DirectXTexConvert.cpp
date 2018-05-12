@@ -192,6 +192,30 @@ namespace
     const XMVECTORF32 g_HalfMin   = { { { -65504.f, -65504.f, -65504.f, -65504.f } } };
     const XMVECTORF32 g_HalfMax   = { { { 65504.f, 65504.f, 65504.f, 65504.f } } };
     const XMVECTORF32 g_8BitBias  = { { { 0.5f / 255.f, 0.5f / 255.f, 0.5f / 255.f, 0.5f / 255.f } } };
+
+    inline void SanitizeFloat16(XMVECTOR& v, DWORD flags)
+    {
+        // Convert NaNs to 0.0f
+        if (!(flags & TEX_FILTER_FLOAT_KEEP_NANS))
+            v = XMVectorSelect(XMVectorZero(), v, XMVectorIsNaN(v));
+
+        if (!(flags & TEX_FILTER_FLOAT_SATURATE_TO_INF))
+            v = XMVectorClamp(v, g_HalfMin, g_HalfMax);
+    }
+
+    inline void SanitizeFloat16(float& v, DWORD flags)
+    {
+        if (std::isnan(v))
+        {
+            if (!(flags & TEX_FILTER_FLOAT_KEEP_NANS))
+                v = 0.0f;
+        }
+        else
+        {
+            if (!(flags & TEX_FILTER_FLOAT_SATURATE_TO_INF))
+                v = std::min(std::max(v, -65504.f), 65504.f);
+        }
+    }
 }
 
 //-------------------------------------------------------------------------------------
@@ -1281,13 +1305,13 @@ _Use_decl_annotations_ bool DirectX::_LoadScanline(
 
                 // http://msdn.microsoft.com/en-us/library/windows/desktop/dd206750.aspx
 
-                // Y’  = Y - 16
-                // Cb’ = Cb - 128
-                // Cr’ = Cr - 128
+                // Y'  = Y - 16
+                // Cb' = Cb - 128
+                // Cr' = Cr - 128
 
-                // R = 1.1644Y’ + 1.5960Cr’
-                // G = 1.1644Y’ - 0.3917Cb’ - 0.8128Cr’
-                // B = 1.1644Y’ + 2.0172Cb’
+                // R = 1.1644Y' + 1.5960Cr'
+                // G = 1.1644Y' - 0.3917Cb' - 0.8128Cr'
+                // B = 1.1644Y' + 2.0172Cb'
 
                 int r = (298 * y + 409 * v + 128) >> 8;
                 int g = (298 * y - 100 * u - 208 * v + 128) >> 8;
@@ -1317,13 +1341,13 @@ _Use_decl_annotations_ bool DirectX::_LoadScanline(
 
                 // http://msdn.microsoft.com/en-us/library/windows/desktop/bb970578.aspx
 
-                // Y’  = Y - 64
-                // Cb’ = Cb - 512
-                // Cr’ = Cr - 512
+                // Y'  = Y - 64
+                // Cb' = Cb - 512
+                // Cr' = Cr - 512
 
-                // R = 1.1678Y’ + 1.6007Cr’
-                // G = 1.1678Y’ - 0.3929Cb’ - 0.8152Cr’
-                // B = 1.1678Y’ + 2.0232Cb’
+                // R = 1.1678Y' + 1.6007Cr'
+                // G = 1.1678Y' - 0.3929Cb' - 0.8152Cr'
+                // B = 1.1678Y' + 2.0232Cb'
 
                 int r = static_cast<int>((76533 * y + 104905 * v + 32768) >> 16);
                 int g = static_cast<int>((76533 * y - 25747 * u - 53425 * v + 32768) >> 16);
@@ -1353,13 +1377,13 @@ _Use_decl_annotations_ bool DirectX::_LoadScanline(
 
                 // http://msdn.microsoft.com/en-us/library/windows/desktop/bb970578.aspx
 
-                // Y’  = Y - 4096
-                // Cb’ = Cb - 32768
-                // Cr’ = Cr - 32768
+                // Y'  = Y - 4096
+                // Cb' = Cb - 32768
+                // Cr' = Cr - 32768
 
-                // R = 1.1689Y’ + 1.6023Cr’
-                // G = 1.1689Y’ - 0.3933Cb’ - 0.8160Cr’
-                // B = 1.1689Y’+ 2.0251Cb’
+                // R = 1.1689Y' + 1.6023Cr'
+                // G = 1.1689Y' - 0.3933Cb' - 0.8160Cr'
+                // B = 1.1689Y'+ 2.0251Cb'
 
                 int r = static_cast<int>((76607 * y + 105006 * v + 32768) >> 16);
                 int g = static_cast<int>((76607 * y - 25772 * u - 53477 * v + 32768) >> 16);
@@ -1609,7 +1633,8 @@ bool DirectX::_StoreScanline(
     DXGI_FORMAT format,
     const XMVECTOR* pSource,
     size_t count,
-    float threshold)
+    float threshold,
+    DWORD flags)
 {
     assert(pDestination && size > 0);
     assert(pSource && count > 0 && (((uintptr_t)pSource & 0xF) == 0));
@@ -1649,7 +1674,7 @@ bool DirectX::_StoreScanline(
             {
                 if (sPtr >= ePtr) break;
                 XMVECTOR v = *sPtr++;
-                v = XMVectorClamp(v, g_HalfMin, g_HalfMax);
+                SanitizeFloat16(v, flags);
                 XMStoreHalf4(dPtr++, v);
             }
             return true;
@@ -1743,7 +1768,7 @@ bool DirectX::_StoreScanline(
             {
                 if (sPtr >= ePtr) break;
                 XMVECTOR v = *sPtr++;
-                v = XMVectorClamp(v, g_HalfMin, g_HalfMax);
+                SanitizeFloat16(v, flags);
                 XMStoreHalf2(dPtr++, v);
             }
             return true;
@@ -1842,7 +1867,7 @@ bool DirectX::_StoreScanline(
             {
                 if (sPtr >= ePtr) break;
                 float v = XMVectorGetX(*sPtr++);
-                v = std::max<float>(std::min<float>(v, 65504.f), -65504.f);
+                SanitizeFloat16(v, flags);
                 *(dPtr++) = XMConvertFloatToHalf(v);
             }
             return true;
@@ -2699,7 +2724,7 @@ bool DirectX::_StoreScanlineLinear(
         }
     }
 
-    return _StoreScanline(pDestination, size, format, pSource, count, threshold);
+    return _StoreScanline(pDestination, size, format, pSource, count, threshold, flags);
 }
 
 
@@ -4518,7 +4543,7 @@ namespace
 
                     _ConvertScanline(scanline.get(), width, destImage.format, srcImage.format, filter);
 
-                    if (!_StoreScanline(pDest, destImage.rowPitch, destImage.format, scanline.get(), width, threshold))
+                    if (!_StoreScanline(pDest, destImage.rowPitch, destImage.format, scanline.get(), width, threshold, filter))
                         return E_FAIL;
 
                     pSrc += srcImage.rowPitch;
