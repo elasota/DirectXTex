@@ -2907,7 +2907,7 @@ namespace
     };
 
 #pragma prefast( suppress : 25004, "Signature must match bsearch_s" );
-    int __cdecl ConvertCompare(void *context, const void* ptr1, const void *ptr2) DIRECTX_NOEXCEPT
+    int __cdecl ConvertCompare(void *context, const void* ptr1, const void *ptr2) noexcept
     {
         UNREFERENCED_PARAMETER(context);
         auto p1 = static_cast<const ConvertData*>(ptr1);
@@ -4326,6 +4326,7 @@ namespace
             return false;
         }
 
+        // Check for special cases
 #if defined(_XBOX_ONE) && defined(_TITLE)
         if (sformat == DXGI_FORMAT_R16G16B16A16_FLOAT
             || sformat == DXGI_FORMAT_R16_FLOAT
@@ -4337,7 +4338,30 @@ namespace
         }
 #endif
 
-        // Check for special cases
+        switch (sformat)
+        {
+        case DXGI_FORMAT_R32G32B32A32_FLOAT:
+        case DXGI_FORMAT_R32G32B32_FLOAT:
+        case DXGI_FORMAT_R32G32_FLOAT:
+        case DXGI_FORMAT_R32_FLOAT:
+        case DXGI_FORMAT_D32_FLOAT:
+            switch (tformat)
+            {
+            case DXGI_FORMAT_R16G16B16A16_FLOAT:
+            case DXGI_FORMAT_R16G16_FLOAT:
+            case DXGI_FORMAT_R16_FLOAT:
+                // WIC conversions for FP32->FP16 can result in NaN values instead of clamping for min/max value
+                return false;
+
+            default:
+                break;
+            }
+            break;
+
+        default:
+            break;
+        }
+
         switch (sformat)
         {
         case DXGI_FORMAT_R32G32B32A32_FLOAT:

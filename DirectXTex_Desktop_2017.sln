@@ -22,6 +22,11 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FasTCTest", "FasTCTest\FasT
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InspectDDS", "InspectDDS\InspectDDS.csproj", "{E6DDF89F-9056-43F0-9B32-810CE6F9B5F7}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{A40FB626-EA42-48D5-AE40-EE5A6FD3742E}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
+EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ISPCTextureCompressor", "ISPCTextureCompressor\ISPCTextureCompressor.vcxproj", "{0A705C64-1381-46CF-872A-7AA27B5D1A61}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ConvectionCPUTest", "ConvectionCPUTest\ConvectionCPUTest.vcxproj", "{ADC2361F-E037-460F-A4C7-B6F877DACC02}"
@@ -234,6 +239,6 @@ Global
 		{8E31A619-F4F8-413F-A973-4EE37B1AAA5D} = {AEA1D9F7-EA95-4BF7-8E6D-0EA068077943}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {464B4AAF-0CFD-4799-AE1E-31D4E5B17758}
+		SolutionGuid = {CFB3C228-4C26-4746-8E0C-71C310403E8C}
 	EndGlobalSection
 EndGlobal
