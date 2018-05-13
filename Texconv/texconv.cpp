@@ -1479,13 +1479,6 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 break;
 
             case OPT_COMPRESS_UNIFORM:
-                if (dwOptions & (OPT_COMPRESS_RWEIGHT | OPT_COMPRESS_GWEIGHT | OPT_COMPRESS_BWEIGHT | OPT_COMPRESS_AWEIGHT))
-                {
-                    wprintf(L"Can't use -bcuniform with -rweight -gweight -bweight or -aweight\n\n");
-                    PrintUsage();
-                    return 1;
-                }
-
                 dwCompress |= TEX_COMPRESS_UNIFORM;
                 break;
 
