@@ -584,16 +584,16 @@ namespace
 
     void PrintInfo(const TexMetadata& info)
     {
-        wprintf(L" (%Iux%Iu", info.width, info.height);
+        wprintf(L" (%zux%zu", info.width, info.height);
 
         if (TEX_DIMENSION_TEXTURE3D == info.dimension)
-            wprintf(L"x%Iu", info.depth);
+            wprintf(L"x%zu", info.depth);
 
         if (info.mipLevels > 1)
-            wprintf(L",%Iu", info.mipLevels);
+            wprintf(L",%zu", info.mipLevels);
 
         if (info.arraySize > 1)
-            wprintf(L",%Iu", info.arraySize);
+            wprintf(L",%zu", info.arraySize);
 
         wprintf(L" ");
         PrintFormat(info.format);
@@ -1213,7 +1213,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             switch (dwOption)
             {
             case OPT_WIDTH:
-                if (swscanf_s(pValue, L"%Iu", &width) != 1)
+                if (swscanf_s(pValue, L"%zu", &width) != 1)
                 {
                     wprintf(L"Invalid value specified with -w (%ls)\n", pValue);
                     wprintf(L"\n");
@@ -1223,7 +1223,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 break;
 
             case OPT_HEIGHT:
-                if (swscanf_s(pValue, L"%Iu", &height) != 1)
+                if (swscanf_s(pValue, L"%zu", &height) != 1)
                 {
                     wprintf(L"Invalid value specified with -h (%ls)\n", pValue);
                     printf("\n");
@@ -1233,7 +1233,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 break;
 
             case OPT_MIPLEVELS:
-                if (swscanf_s(pValue, L"%Iu", &mipLevels) != 1)
+                if (swscanf_s(pValue, L"%zu", &mipLevels) != 1)
                 {
                     wprintf(L"Invalid value specified with -m (%ls)\n", pValue);
                     wprintf(L"\n");
@@ -2537,23 +2537,18 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         }
 
         // --- Generate mips -----------------------------------------------------------
+        DWORD dwFilter3D = dwFilter;
         if (!ispow2(info.width) || !ispow2(info.height) || !ispow2(info.depth))
         {
-            if (info.dimension == TEX_DIMENSION_TEXTURE3D)
-            {
-                if (!tMips)
-                {
-                    tMips = 1;
-                }
-                else
-                {
-                    wprintf(L"\nERROR: Cannot generate mips for non-power-of-2 volume textures\n");
-                    return 1;
-                }
-            }
-            else if (!tMips || info.mipLevels != 1)
+            if (!tMips || info.mipLevels != 1)
             {
                 nonpow2warn = true;
+            }
+
+            if (info.dimension == TEX_DIMENSION_TEXTURE3D)
+            {
+                // Must force triangle filter for non-power-of-2 volume textures to get correct results
+                dwFilter3D = TEX_FILTER_TRIANGLE;
             }
         }
 
@@ -2658,7 +2653,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
             if (info.dimension == TEX_DIMENSION_TEXTURE3D)
             {
-                hr = GenerateMipMaps3D(image->GetImages(), image->GetImageCount(), image->GetMetadata(), dwFilter | dwFilterOpts, tMips, *timage);
+                hr = GenerateMipMaps3D(image->GetImages(), image->GetImageCount(), image->GetMetadata(), dwFilter3D | dwFilterOpts, tMips, *timage);
             }
             else
             {
