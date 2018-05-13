@@ -364,7 +364,7 @@ HRESULT DirectX::CopyRectangle(
 
         _ConvertScanline(scanline.get(), srcRect.w, dstImage.format, srcImage.format, filter);
 
-        if (!_StoreScanline(pDest, copyD, dstImage.format, scanline.get(), srcRect.w))
+        if (!_StoreScanline(pDest, copyD, dstImage.format, scanline.get(), srcRect.w, 0.0f, filter))
             return E_FAIL;
 
         pSrc += srcImage.rowPitch;

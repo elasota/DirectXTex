@@ -641,7 +641,7 @@ namespace
     }
 
     //--- 2D Point Filter ---
-    HRESULT Generate2DMipsPointFilter(size_t levels, const ScratchImage& mipChain, size_t item)
+    HRESULT Generate2DMipsPointFilter(size_t levels, const ScratchImage& mipChain, size_t item, DWORD flags)
     {
         if (!mipChain.GetImages())
             return E_INVALIDARG;
@@ -706,7 +706,7 @@ namespace
                     sx += xinc;
                 }
 
-                if (!_StoreScanline(pDest, dest->rowPitch, dest->format, target, nwidth))
+                if (!_StoreScanline(pDest, dest->rowPitch, dest->format, target, nwidth, 0.0f, flags))
                     return E_FAIL;
                 pDest += dest->rowPitch;
 
@@ -1386,7 +1386,7 @@ namespace
 
 
     //--- 3D Point Filter ---
-    HRESULT Generate3DMipsPointFilter(size_t depth, size_t levels, const ScratchImage& mipChain)
+    HRESULT Generate3DMipsPointFilter(size_t depth, size_t levels, const ScratchImage& mipChain, DWORD flags)
     {
         if (!depth || !mipChain.GetImages())
             return E_INVALIDARG;
@@ -1460,7 +1460,7 @@ namespace
                             sx += xinc;
                         }
 
-                        if (!_StoreScanline(pDest, dest->rowPitch, dest->format, target, nwidth))
+                        if (!_StoreScanline(pDest, dest->rowPitch, dest->format, target, nwidth, 0.0f, flags))
                             return E_FAIL;
                         pDest += dest->rowPitch;
 
@@ -2658,7 +2658,7 @@ HRESULT DirectX::GenerateMipMaps(
             if (FAILED(hr))
                 return hr;
 
-            hr = Generate2DMipsPointFilter(levels, mipChain, 0);
+            hr = Generate2DMipsPointFilter(levels, mipChain, 0, filter);
             if (FAILED(hr))
                 mipChain.Release();
             return hr;
@@ -2856,7 +2856,7 @@ HRESULT DirectX::GenerateMipMaps(
 
             for (size_t item = 0; item < metadata.arraySize; ++item)
             {
-                hr = Generate2DMipsPointFilter(levels, mipChain, item);
+                hr = Generate2DMipsPointFilter(levels, mipChain, item, filter);
                 if (FAILED(hr))
                     mipChain.Release();
             }
@@ -2978,7 +2978,7 @@ HRESULT DirectX::GenerateMipMaps3D(
         if (FAILED(hr))
             return hr;
 
-        hr = Generate3DMipsPointFilter(depth, levels, mipChain);
+        hr = Generate3DMipsPointFilter(depth, levels, mipChain, filter);
         if (FAILED(hr))
             mipChain.Release();
         return hr;
@@ -3094,7 +3094,7 @@ HRESULT DirectX::GenerateMipMaps3D(
         if (FAILED(hr))
             return hr;
 
-        hr = Generate3DMipsPointFilter(metadata.depth, levels, mipChain);
+        hr = Generate3DMipsPointFilter(metadata.depth, levels, mipChain, filter);
         if (FAILED(hr))
             mipChain.Release();
         return hr;

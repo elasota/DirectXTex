@@ -242,7 +242,7 @@ namespace DirectX
 
     _Success_(return != false) bool __cdecl _StoreScanline(
         _Out_writes_bytes_(size) void* pDestination, _In_ size_t size, _In_ DXGI_FORMAT format,
-        _In_reads_(count) const XMVECTOR* pSource, _In_ size_t count, _In_ float threshold = 0);
+        _In_reads_(count) const XMVECTOR* pSource, _In_ size_t count, _In_ float threshold = 0, _In_ DWORD flags = 0);
 
     _Success_(return != false) bool __cdecl _StoreScanlineLinear(
         _Out_writes_bytes_(size) void* pDestination, _In_ size_t size, _In_ DXGI_FORMAT format,
