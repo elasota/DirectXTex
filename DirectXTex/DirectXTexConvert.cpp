@@ -195,12 +195,15 @@ namespace
 
     inline void SanitizeFloat16(XMVECTOR& v, DWORD flags)
     {
-        // Convert NaNs to 0.0f
-        if (!(flags & TEX_FILTER_FLOAT_KEEP_NANS))
-            v = XMVectorSelect(XMVectorZero(), v, XMVectorIsNaN(v));
+        XMVECTOR isNaN = XMVectorIsNaN(v);
 
         if (!(flags & TEX_FILTER_FLOAT_SATURATE_TO_INF))
             v = XMVectorClamp(v, g_HalfMin, g_HalfMax);
+
+        if (flags & TEX_FILTER_FLOAT_KEEP_NANS)
+            v = XMVectorSelect(XMVectorSplatQNaN(), v, isNaN);
+        else
+            v = XMVectorSelect(XMVectorZero(), v, isNaN);
     }
 
     inline void SanitizeFloat16(float& v, DWORD flags)
