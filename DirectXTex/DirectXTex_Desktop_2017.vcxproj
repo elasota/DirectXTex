@@ -353,6 +353,9 @@
     <None Include="Shaders\BC7Encode.hlsl">
       <FileType>Document</FileType>
     </None>
+    <None Include="Shaders\BC7Encode_HQ.hlsl">
+      <FileType>Document</FileType>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <None Include="Shaders\Compiled\BC6HEncode_EncodeBlockCS.inc" />
@@ -381,9 +384,6 @@
     <None Include="Shaders\Compiled\BC7Encode_TryMode456CS.pdb" />
     <None Include="Shaders\CompileShaders.cmd" />
   </ItemGroup>
-    <None Include="Shaders\BC7Encode_HQ.hlsl">
-      <FileType>Document</FileType>
-    </None>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
   <Target Name="ATGEnsureShaders" BeforeTargets="PrepareForBuild">
