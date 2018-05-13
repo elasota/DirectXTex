@@ -47,7 +47,7 @@ namespace
         switch (format)
         {
         case DXGI_FORMAT_BC1_UNORM:
-        case DXGI_FORMAT_BC1_UNORM_SRGB:    pfEncode = nullptr;         blocksize = 8;   cflags = 0; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
+        case DXGI_FORMAT_BC1_UNORM_SRGB:    pfEncode = D3DXEncodeBC1Parallel;   blocksize = 8;   cflags = 0; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
         case DXGI_FORMAT_BC2_UNORM:
         case DXGI_FORMAT_BC2_UNORM_SRGB:    pfEncode = D3DXEncodeBC2Parallel;   blocksize = 16;  cflags = 0; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
         case DXGI_FORMAT_BC3_UNORM:
@@ -71,9 +71,8 @@ namespace
     HRESULT CompressBC(
         const Image& image,
         const Image& result,
-        DWORD bcflags,
         DWORD srgb,
-        float threshold)
+        const TexCompressOptions &options)
     {
         if (!image.pixels || !result.pixels)
             return E_POINTER;
@@ -187,10 +186,8 @@ namespace
 
                 if (nQueuedBlocks == nBlocksPerChunk)
                 {
-                    if (pfEncode)
-                        pfEncode(dptr, tempBlocks, bcflags);
-                    else
-                        D3DXEncodeBC1Parallel(dptr, tempBlocks, threshold, bcflags);
+                    assert(pfEncode);
+                    pfEncode(dptr, tempBlocks, options);
 
                     dptr += blocksize * nBlocksPerChunk;
                     nQueuedBlocks = 0;
@@ -207,10 +204,8 @@ namespace
                     for (int element = 0; element < NUM_PIXELS_PER_BLOCK; element++)
                         tempBlocks[i * NUM_PIXELS_PER_BLOCK + element] = XMVectorSet(0.f, 0.f, 0.f, 0.f);
 
-                if (pfEncode)
-                    pfEncode(scratch, tempBlocks, bcflags);
-                else
-                    D3DXEncodeBC1Parallel(scratch, tempBlocks, threshold, bcflags);
+                assert(pfEncode);
+                pfEncode(scratch, tempBlocks, options);
 
                 memcpy(dptr, scratch, blocksize * nQueuedBlocks);
                 dptr += blocksize * nQueuedBlocks;
@@ -230,9 +225,8 @@ namespace
     HRESULT CompressBC_Parallel(
         const Image& image,
         const Image& result,
-        DWORD bcflags,
         DWORD srgb,
-        float threshold)
+        const TexCompressOptions &options)
     {
         if (!image.pixels || !result.pixels)
             return E_POINTER;
@@ -372,19 +366,15 @@ namespace
 
             if (numProcessableBlocks == nBlocksPerChunk)
             {
-                if (pfEncode)
-                    pfEncode(pDest, tempBlocks, bcflags);
-                else
-                    D3DXEncodeBC1Parallel(pDest, tempBlocks, threshold, bcflags);
+                assert(pfEncode);
+                pfEncode(pDest, tempBlocks, options);
             }
             else
             {
                 uint8_t scratch[MAX_BLOCK_SIZE * MAX_PARALLEL_BLOCKS];
 
-                if (pfEncode)
-                    pfEncode(scratch, tempBlocks, bcflags);
-                else
-                    D3DXEncodeBC1Parallel(scratch, tempBlocks, threshold, bcflags);
+                assert(pfEncode);
+                pfEncode(scratch, tempBlocks, options);
 
                 memcpy(pDest, scratch, numProcessableBlocks * blocksize);
             }
@@ -654,11 +644,10 @@ namespace DirectX
 // Compression
 //-------------------------------------------------------------------------------------
 _Use_decl_annotations_
-HRESULT DirectX::Compress(
+HRESULT DirectX::CompressEx(
     const Image& srcImage,
     DXGI_FORMAT format,
-    DWORD compress,
-    float threshold,
+    const TexCompressOptions &options,
     ScratchImage& image)
 {
     if (IsCompressed(srcImage.format) || !IsCompressed(format))
@@ -681,17 +670,17 @@ HRESULT DirectX::Compress(
     }
 
     // Compress single image
-    if (compress & TEX_COMPRESS_PARALLEL)
+    if (options.flags & TEX_COMPRESS_PARALLEL)
     {
 #ifndef _OPENMP
         return E_NOTIMPL;
 #else
-        hr = CompressBC_Parallel(srcImage, *img, GetBCFlags(compress), GetSRGBFlags(compress), threshold);
+        hr = CompressBC_Parallel(srcImage, *img, GetSRGBFlags(options.flags), options);
 #endif // _OPENMP
     }
     else
     {
-        hr = CompressBC(srcImage, *img, GetBCFlags(compress), GetSRGBFlags(compress), threshold);
+        hr = CompressBC(srcImage, *img, GetSRGBFlags(options.flags), options);
     }
 
     if (FAILED(hr))
@@ -702,12 +691,26 @@ HRESULT DirectX::Compress(
 
 _Use_decl_annotations_
 HRESULT DirectX::Compress(
+    const Image& srcImage,
+    DXGI_FORMAT format,
+    DWORD compress,
+    float threshold,
+    ScratchImage& image)
+{
+    TexCompressOptions options;
+
+    options.threshold = threshold;
+    options.flags = compress;
+    return CompressEx(srcImage, format, options, image);
+}
+
+_Use_decl_annotations_
+HRESULT DirectX::CompressEx(
     const Image* srcImages,
     size_t nimages,
     const TexMetadata& metadata,
     DXGI_FORMAT format,
-    DWORD compress,
-    float threshold,
+    const TexCompressOptions &options,
     ScratchImage& cImages)
 {
     if (!srcImages || !nimages)
@@ -753,14 +756,14 @@ HRESULT DirectX::Compress(
             return E_FAIL;
         }
 
-        if ((compress & TEX_COMPRESS_PARALLEL))
+        if ((options.flags & TEX_COMPRESS_PARALLEL))
         {
 #ifndef _OPENMP
             return E_NOTIMPL;
 #else
-            if (compress & TEX_COMPRESS_PARALLEL)
+            if (options.flags & TEX_COMPRESS_PARALLEL)
             {
-                hr = CompressBC_Parallel(src, dest[index], GetBCFlags(compress), GetSRGBFlags(compress), threshold);
+                hr = CompressBC_Parallel(src, dest[index], GetSRGBFlags(options.flags), options);
                 if (FAILED(hr))
                 {
                     cImages.Release();
@@ -771,7 +774,7 @@ HRESULT DirectX::Compress(
         }
         else
         {
-            hr = CompressBC(src, dest[index], GetBCFlags(compress), GetSRGBFlags(compress), threshold);
+            hr = CompressBC(src, dest[index], GetSRGBFlags(options.flags), options);
             if (FAILED(hr))
             {
                 cImages.Release();
@@ -781,6 +784,23 @@ HRESULT DirectX::Compress(
     }
 
     return S_OK;
+}
+
+_Use_decl_annotations_
+HRESULT DirectX::Compress(
+    const Image* srcImages,
+    size_t nimages,
+    const TexMetadata& metadata,
+    DXGI_FORMAT format,
+    DWORD compress,
+    float threshold,
+    ScratchImage& cImages)
+{
+    TexCompressOptions options;
+
+    options.threshold = threshold;
+    options.flags = compress;
+    return CompressEx(srcImages, nimages, metadata, format, options, cImages);
 }
 
 

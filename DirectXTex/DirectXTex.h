@@ -619,13 +619,22 @@ namespace DirectX
         }
     };
 
+    // Note that threshold is only used by BC1. TEX_THRESHOLD_DEFAULT is a typical value to use
     HRESULT __cdecl Compress(
         _In_ const Image& srcImage, _In_ DXGI_FORMAT format, _In_ DWORD compress, _In_ float threshold,
         _Out_ ScratchImage& cImage);
+
+    HRESULT __cdecl CompressEx(
+        _In_ const Image& srcImage, _In_ DXGI_FORMAT format, _In_ const TexCompressOptions &options,
+        _Out_ ScratchImage& cImage);
+
     HRESULT __cdecl Compress(
         _In_reads_(nimages) const Image* srcImages, _In_ size_t nimages, _In_ const TexMetadata& metadata,
         _In_ DXGI_FORMAT format, _In_ DWORD compress, _In_ float threshold, _Out_ ScratchImage& cImages);
-        // Note that threshold is only used by BC1. TEX_THRESHOLD_DEFAULT is a typical value to use
+
+    HRESULT __cdecl CompressEx(
+        _In_reads_(nimages) const Image* srcImages, _In_ size_t nimages, _In_ const TexMetadata& metadata,
+        _In_ DXGI_FORMAT format, _In_ const TexCompressOptions &options, _Out_ ScratchImage& cImages);
 
 #if defined(__d3d11_h__) || defined(__d3d11_x_h__)
     HRESULT __cdecl Compress(

@@ -26,10 +26,6 @@ namespace
     // Constants
     //-------------------------------------------------------------------------------------
 
-    // Perceptual weightings for the importance of each channel.
-    const HDRColorA g_Luminance(0.2125f / 0.7154f, 1.0f, 0.0721f / 0.7154f, 1.0f);
-    const HDRColorA g_LuminanceInv(0.7154f / 0.2125f, 1.0f, 0.7154f / 0.0721f, 1.0f);
-
     //-------------------------------------------------------------------------------------
     // Decode/Encode RGB 5/6/5 colors
     //-------------------------------------------------------------------------------------
@@ -65,7 +61,7 @@ namespace
         _Out_ HDRColorA *pY,
         _In_reads_(NUM_PIXELS_PER_BLOCK) const HDRColorA *pPoints,
         size_t cSteps,
-        DWORD flags)
+        const TexCompressOptions &options)
     {
         static const float fEpsilon = (0.25f / 64.0f) * (0.25f / 64.0f);
         static const float pC3[] = { 2.0f / 2.0f, 1.0f / 2.0f, 0.0f / 2.0f };
@@ -77,7 +73,7 @@ namespace
         const float *pD = (3 == cSteps) ? pD3 : pD4;
 
         // Find Min and Max points, as starting point
-        HDRColorA X = (flags & BC_FLAGS_UNIFORM) ? HDRColorA(1.f, 1.f, 1.f, 1.f) : g_Luminance;
+        HDRColorA X = (options.flags & BC_FLAGS_UNIFORM) ? HDRColorA(1.f, 1.f, 1.f, 1.f) : HDRColorA(options.redWeight, options.greenWeight, options.blueWeight, options.alphaWeight);
         HDRColorA Y = HDRColorA(0.0f, 0.0f, 0.0f, 1.0f);
 
         for (size_t iPoint = 0; iPoint < NUM_PIXELS_PER_BLOCK; iPoint++)
@@ -374,10 +370,17 @@ namespace
         _In_reads_(NUM_PIXELS_PER_BLOCK) const HDRColorA *pColor,
         bool bColorKey,
         float threshold,
-        DWORD flags)
+        const TexCompressOptions &options)
     {
         assert(pBC && pColor);
         static_assert(sizeof(D3DX_BC1) == 8, "D3DX_BC1 should be 8 bytes");
+
+        HDRColorA channelWeights = HDRColorA(options.redWeight, options.greenWeight, options.blueWeight, options.alphaWeight);
+        HDRColorA channelWeightsInv;
+        channelWeightsInv.r = (channelWeights.r == 0.0f) ? 0.0f : (1.0f / channelWeights.r);
+        channelWeightsInv.g = (channelWeights.g == 0.0f) ? 0.0f : (1.0f / channelWeights.g);
+        channelWeightsInv.b = (channelWeights.b == 0.0f) ? 0.0f : (1.0f / channelWeights.b);
+        channelWeightsInv.a = (channelWeights.a == 0.0f) ? 0.0f : (1.0f / channelWeights.a);
 
         // Determine if we need to colorkey this block
         size_t uSteps;
@@ -413,7 +416,7 @@ namespace
         HDRColorA Color[NUM_PIXELS_PER_BLOCK];
         HDRColorA Error[NUM_PIXELS_PER_BLOCK];
 
-        if (flags & BC_FLAGS_DITHER_RGB)
+        if (options.flags & BC_FLAGS_DITHER_RGB)
             memset(Error, 0x00, NUM_PIXELS_PER_BLOCK * sizeof(HDRColorA));
 
         size_t i;
@@ -424,7 +427,7 @@ namespace
             Clr.g = pColor[i].g;
             Clr.b = pColor[i].b;
 
-            if (flags & BC_FLAGS_DITHER_RGB)
+            if (options.flags & BC_FLAGS_DITHER_RGB)
             {
                 Clr.r += Error[i].r;
                 Clr.g += Error[i].g;
@@ -441,7 +444,7 @@ namespace
             Color[i].a = 1.0f;
 #endif // COLOR_WEIGHTS
 
-            if (flags & BC_FLAGS_DITHER_RGB)
+            if (options.flags & BC_FLAGS_DITHER_RGB)
             {
                 HDRColorA Diff;
                 Diff.r = Color[i].a * (Clr.r - Color[i].r);
@@ -481,11 +484,11 @@ namespace
                 }
             }
 
-            if (!(flags & BC_FLAGS_UNIFORM))
+            if (!(options.flags & BC_FLAGS_UNIFORM))
             {
-                Color[i].r *= g_Luminance.r;
-                Color[i].g *= g_Luminance.g;
-                Color[i].b *= g_Luminance.b;
+                Color[i].r *= channelWeights.r;
+                Color[i].g *= channelWeights.g;
+                Color[i].b *= channelWeights.b;
             }
         }
 
@@ -493,22 +496,22 @@ namespace
         // Then quantize and sort the endpoints depending on mode.
         HDRColorA ColorA, ColorB, ColorC, ColorD;
 
-        OptimizeRGB(&ColorA, &ColorB, Color, uSteps, flags);
+        OptimizeRGB(&ColorA, &ColorB, Color, uSteps, options);
 
-        if (flags & BC_FLAGS_UNIFORM)
+        if (options.flags & BC_FLAGS_UNIFORM)
         {
             ColorC = ColorA;
             ColorD = ColorB;
         }
         else
         {
-            ColorC.r = ColorA.r * g_LuminanceInv.r;
-            ColorC.g = ColorA.g * g_LuminanceInv.g;
-            ColorC.b = ColorA.b * g_LuminanceInv.b;
+            ColorC.r = ColorA.r * channelWeightsInv.r;
+            ColorC.g = ColorA.g * channelWeightsInv.g;
+            ColorC.b = ColorA.b * channelWeightsInv.b;
 
-            ColorD.r = ColorB.r * g_LuminanceInv.r;
-            ColorD.g = ColorB.g * g_LuminanceInv.g;
-            ColorD.b = ColorB.b * g_LuminanceInv.b;
+            ColorD.r = ColorB.r * channelWeightsInv.r;
+            ColorD.g = ColorB.g * channelWeightsInv.g;
+            ColorD.b = ColorB.b * channelWeightsInv.b;
         }
 
         uint16_t wColorA = Encode565(&ColorC);
@@ -525,20 +528,20 @@ namespace
         Decode565(&ColorC, wColorA);
         Decode565(&ColorD, wColorB);
 
-        if (flags & BC_FLAGS_UNIFORM)
+        if (options.flags & BC_FLAGS_UNIFORM)
         {
             ColorA = ColorC;
             ColorB = ColorD;
         }
         else
         {
-            ColorA.r = ColorC.r * g_Luminance.r;
-            ColorA.g = ColorC.g * g_Luminance.g;
-            ColorA.b = ColorC.b * g_Luminance.b;
+            ColorA.r = ColorC.r * channelWeights.r;
+            ColorA.g = ColorC.g * channelWeights.g;
+            ColorA.b = ColorC.b * channelWeights.b;
 
-            ColorB.r = ColorD.r * g_Luminance.r;
-            ColorB.g = ColorD.g * g_Luminance.g;
-            ColorB.b = ColorD.b * g_Luminance.b;
+            ColorB.r = ColorD.r * channelWeights.r;
+            ColorB.g = ColorD.g * channelWeights.g;
+            ColorB.b = ColorD.b * channelWeights.b;
         }
 
         // Calculate color steps
@@ -595,7 +598,7 @@ namespace
 
         // Encode colors
         uint32_t dw = 0;
-        if (flags & BC_FLAGS_DITHER_RGB)
+        if (options.flags & BC_FLAGS_DITHER_RGB)
             memset(Error, 0x00, NUM_PIXELS_PER_BLOCK * sizeof(HDRColorA));
 
         for (i = 0; i < NUM_PIXELS_PER_BLOCK; ++i)
@@ -607,7 +610,7 @@ namespace
             else
             {
                 HDRColorA Clr;
-                if (flags & BC_FLAGS_UNIFORM)
+                if (options.flags & BC_FLAGS_UNIFORM)
                 {
                     Clr.r = pColor[i].r;
                     Clr.g = pColor[i].g;
@@ -615,12 +618,12 @@ namespace
                 }
                 else
                 {
-                    Clr.r = pColor[i].r * g_Luminance.r;
-                    Clr.g = pColor[i].g * g_Luminance.g;
-                    Clr.b = pColor[i].b * g_Luminance.b;
+                    Clr.r = pColor[i].r * channelWeights.r;
+                    Clr.g = pColor[i].g * channelWeights.g;
+                    Clr.b = pColor[i].b * channelWeights.b;
                 }
 
-                if (flags & BC_FLAGS_DITHER_RGB)
+                if (options.flags & BC_FLAGS_DITHER_RGB)
                 {
                     Clr.r += Error[i].r;
                     Clr.g += Error[i].g;
@@ -639,7 +642,7 @@ namespace
 
                 dw = (iStep << 30) | (dw >> 2);
 
-                if (flags & BC_FLAGS_DITHER_RGB)
+                if (options.flags & BC_FLAGS_DITHER_RGB)
                 {
                     HDRColorA Diff;
                     Diff.r = Color[i].a * (Clr.r - Step[iStep].r);
@@ -731,13 +734,13 @@ void DirectX::D3DXDecodeBC1(XMVECTOR *pColor, const uint8_t *pBC)
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC1(uint8_t *pBC, const XMVECTOR *pColor, float threshold, DWORD flags)
+void DirectX::D3DXEncodeBC1(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
 {
     assert(pBC && pColor);
 
     HDRColorA Color[NUM_PIXELS_PER_BLOCK];
 
-    if (flags & BC_FLAGS_DITHER_A)
+    if (options.flags & BC_FLAGS_DITHER_A)
     {
         float fError[NUM_PIXELS_PER_BLOCK];
         memset(fError, 0x00, NUM_PIXELS_PER_BLOCK * sizeof(float));
@@ -788,7 +791,7 @@ void DirectX::D3DXEncodeBC1(uint8_t *pBC, const XMVECTOR *pColor, float threshol
     }
 
     auto pBC1 = reinterpret_cast<D3DX_BC1 *>(pBC);
-    EncodeBC1(pBC1, Color, true, threshold, flags);
+    EncodeBC1(pBC1, Color, true, options.threshold, options);
 }
 
 
@@ -822,7 +825,7 @@ void DirectX::D3DXDecodeBC2(XMVECTOR *pColor, const uint8_t *pBC)
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC2(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
+void DirectX::D3DXEncodeBC2(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
 {
     assert(pBC && pColor);
     static_assert(sizeof(D3DX_BC2) == 16, "D3DX_BC2 should be 16 bytes");
@@ -840,13 +843,13 @@ void DirectX::D3DXEncodeBC2(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
     pBC2->bitmap[1] = 0;
 
     float fError[NUM_PIXELS_PER_BLOCK];
-    if (flags & BC_FLAGS_DITHER_A)
+    if (options.flags & BC_FLAGS_DITHER_A)
         memset(fError, 0x00, NUM_PIXELS_PER_BLOCK * sizeof(float));
 
     for (size_t i = 0; i < NUM_PIXELS_PER_BLOCK; ++i)
     {
         float fAlph = Color[i].a;
-        if (flags & BC_FLAGS_DITHER_A)
+        if (options.flags & BC_FLAGS_DITHER_A)
             fAlph += fError[i];
 
         uint32_t u = (uint32_t) static_cast<int32_t>(fAlph * 15.0f + 0.5f);
@@ -854,7 +857,7 @@ void DirectX::D3DXEncodeBC2(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
         pBC2->bitmap[i >> 3] >>= 4;
         pBC2->bitmap[i >> 3] |= (u << 28);
 
-        if (flags & BC_FLAGS_DITHER_A)
+        if (options.flags & BC_FLAGS_DITHER_A)
         {
             float fDiff = fAlph - (float)u * (1.0f / 15.0f);
 
@@ -891,7 +894,7 @@ void DirectX::D3DXEncodeBC2(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
     }
 #endif // COLOR_WEIGHTS
 
-    EncodeBC1(&pBC2->bc1, Color, false, 0.f, flags);
+    EncodeBC1(&pBC2->bc1, Color, false, 0.f, options);
 }
 
 
@@ -941,7 +944,7 @@ void DirectX::D3DXDecodeBC3(XMVECTOR *pColor, const uint8_t *pBC)
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
+void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
 {
     assert(pBC && pColor);
     static_assert(sizeof(D3DX_BC3) == 16, "D3DX_BC3 should be 16 bytes");
@@ -963,13 +966,13 @@ void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
     float fMinAlpha = Color[0].a;
     float fMaxAlpha = Color[0].a;
 
-    if (flags & BC_FLAGS_DITHER_A)
+    if (options.flags & BC_FLAGS_DITHER_A)
         memset(fError, 0x00, NUM_PIXELS_PER_BLOCK * sizeof(float));
 
     for (size_t i = 0; i < NUM_PIXELS_PER_BLOCK; ++i)
     {
         float fAlph = Color[i].a;
-        if (flags & BC_FLAGS_DITHER_A)
+        if (options.flags & BC_FLAGS_DITHER_A)
             fAlph += fError[i];
 
         fAlpha[i] = static_cast<int32_t>(fAlph * 255.0f + 0.5f) * (1.0f / 255.0f);
@@ -979,7 +982,7 @@ void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
         else if (fAlpha[i] > fMaxAlpha)
             fMaxAlpha = fAlpha[i];
 
-        if (flags & BC_FLAGS_DITHER_A)
+        if (options.flags & BC_FLAGS_DITHER_A)
         {
             float fDiff = fAlph - fAlpha[i];
 
@@ -1018,7 +1021,7 @@ void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
 #endif
 
     // RGB part
-    EncodeBC1(&pBC3->bc1, Color, false, 0.f, flags);
+    EncodeBC1(&pBC3->bc1, Color, false, 0.f, options);
 
     // Alpha part
     if (1.0f == fMinAlpha)
@@ -1090,7 +1093,7 @@ void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
     float fSteps = (float)(uSteps - 1);
     float fScale = (fStep[0] != fStep[1]) ? (fSteps / (fStep[1] - fStep[0])) : 0.0f;
 
-    if (flags & BC_FLAGS_DITHER_A)
+    if (options.flags & BC_FLAGS_DITHER_A)
         memset(fError, 0x00, NUM_PIXELS_PER_BLOCK * sizeof(float));
 
     for (size_t iSet = 0; iSet < 2; iSet++)
@@ -1103,7 +1106,7 @@ void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
         for (size_t i = iMin; i < iLim; ++i)
         {
             float fAlph = Color[i].a;
-            if (flags & BC_FLAGS_DITHER_A)
+            if (options.flags & BC_FLAGS_DITHER_A)
                 fAlph += fError[i];
             float fDot = (fAlph - fStep[0]) * fScale;
 
@@ -1117,7 +1120,7 @@ void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
 
             dw = (iStep << 21) | (dw >> 3);
 
-            if (flags & BC_FLAGS_DITHER_A)
+            if (options.flags & BC_FLAGS_DITHER_A)
             {
                 float fDiff = (fAlph - fStep[iStep]);
 

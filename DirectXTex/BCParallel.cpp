@@ -1618,6 +1618,27 @@ namespace
         ParallelMath::Float m_maxDist;
     };
 
+    static const ParallelMath::Int16 g_weightReciprocals[] =
+    {
+        ParallelMath::MakeUInt16(0),        // -1 
+        ParallelMath::MakeUInt16(0),        // 0
+        ParallelMath::MakeUInt16(32768),    // 1
+        ParallelMath::MakeUInt16(16384),    // 2
+        ParallelMath::MakeUInt16(10923),    // 3
+        ParallelMath::MakeUInt16(8192),     // 4
+        ParallelMath::MakeUInt16(6554),     // 5
+        ParallelMath::MakeUInt16(5461),     // 6
+        ParallelMath::MakeUInt16(4681),     // 7
+        ParallelMath::MakeUInt16(4096),     // 8
+        ParallelMath::MakeUInt16(3641),     // 9
+        ParallelMath::MakeUInt16(3277),     // 10
+        ParallelMath::MakeUInt16(2979),     // 11
+        ParallelMath::MakeUInt16(2731),     // 12
+        ParallelMath::MakeUInt16(2521),     // 13
+        ParallelMath::MakeUInt16(2341),     // 14
+        ParallelMath::MakeUInt16(2185),     // 15
+    };
+
     template<int TVectorSize>
     class IndexSelector
     {
@@ -1674,19 +1695,7 @@ namespace
 
         void Reconstruct(MInt16 index, MInt16* pixel)
         {
-            MInt16 weightRcp = ParallelMath::MakeUInt16(0);
-            if (m_range == 3)
-                weightRcp = ParallelMath::MakeUInt16(16384);
-            else if (m_range == 4)
-                weightRcp = ParallelMath::MakeUInt16(10923);
-            else if (m_range == 6)
-                weightRcp = ParallelMath::MakeUInt16(6554);
-            else if (m_range == 8)
-                weightRcp = ParallelMath::MakeUInt16(4681);
-            else if (m_range == 16)
-                weightRcp = ParallelMath::MakeUInt16(2184);
-
-            MInt16 weight = ParallelMath::UnsignedRightShift(index * weightRcp + 256, 9);
+            MInt16 weight = ParallelMath::UnsignedRightShift(index * g_weightReciprocals[m_range] + 256, 9);
 
             for (int ch = 0; ch < TVectorSize; ch++)
                 pixel[ch] = ParallelMath::UnsignedRightShift(((ParallelMath::MakeUInt16(64) - weight) * m_endPoint[0][ch] + weight * m_endPoint[1][ch] + ParallelMath::MakeUInt16(32)), 6);
@@ -1694,13 +1703,9 @@ namespace
 
         MInt16 SelectIndex(const MInt16* pixel)
         {
-            MFloat diff[TVectorSize];
-            for (int ch = 0; ch < TVectorSize; ch++)
-                diff[ch] = ParallelMath::UInt16ToFloat(pixel[ch]) - m_origin[ch];
-
-            MFloat dist = diff[0] * m_axis[0];
+            MFloat dist = (ParallelMath::UInt16ToFloat(pixel[0]) - m_origin[0]) * m_axis[0];
             for (int ch = 1; ch < TVectorSize; ch++)
-                dist = dist + diff[ch] * m_axis[ch];
+                dist = dist + (ParallelMath::UInt16ToFloat(pixel[ch]) - m_origin[ch]) * m_axis[ch];
 
             return ParallelMath::FloatToUInt16(ParallelMath::Clamp(dist, 0.0f, m_maxValue));
         }
@@ -2282,7 +2287,8 @@ namespace
 
                                     MInt16 index = indexSelector.SelectIndex(pixels[px]);
 
-                                    epRefiner.Contribute(pixels[px], index, ParallelMath::MakeFloat(1.0f));
+                                    if (refine != NumRefineRounds - 1)
+                                        epRefiner.Contribute(pixels[px], index, ParallelMath::MakeFloat(1.0f));
 
                                     MInt16 reconstructed[4];
 
@@ -2295,8 +2301,6 @@ namespace
 
                                 ParallelMath::FloatCompFlag shapeErrorBetter;
                                 ParallelMath::Int16CompFlag shapeErrorBetter16;
-
-                                bool anyImprovements = false;
 
                                 shapeErrorBetter = ParallelMath::Less(shapeError, temps.shapeBestError[shapeCollapsedEvalIndex]);
                                 shapeErrorBetter16 = ParallelMath::FloatFlagToInt16(shapeErrorBetter);
@@ -2494,8 +2498,11 @@ namespace
                                     MInt16 rgbIndex = rgbIndexSelector.SelectIndex(rotatedRGB[px]);
                                     MInt16 alphaIndex = alphaIndexSelector.SelectIndex(pixels[px] + alphaChannel);
 
-                                    rgbRefiner.Contribute(rotatedRGB[px], rgbIndex, ParallelMath::MakeFloat(1.0f));
-                                    alphaRefiner.Contribute(pixels[px] + alphaChannel, alphaIndex, ParallelMath::MakeFloat(1.0f));
+                                    if (refine != NumRefineRounds - 1)
+                                    {
+                                        rgbRefiner.Contribute(rotatedRGB[px], rgbIndex, ParallelMath::MakeFloat(1.0f));
+                                        alphaRefiner.Contribute(pixels[px] + alphaChannel, alphaIndex, ParallelMath::MakeFloat(1.0f));
+                                    }
 
                                     MInt16 reconstructedRGB[3];
                                     MInt16 reconstructedAlpha[1];
@@ -2881,13 +2888,16 @@ namespace
                 for (int px = 0; px < 16; px++)
                     ParallelMath::ConditionalSet(bestIndexes[px], betterInt16, indexes[px]);
 
-                ParallelMath::ConditionalSet(bestRange, betterInt16, ParallelMath::MakeUInt16(range));
+                ParallelMath::ConditionalSet(bestRange, betterInt16, ParallelMath::MakeUInt16(static_cast<uint16_t>(range)));
             }
         }
 
         static void TestCounts(DWORD flags, const int *counts, int nCounts, MInt16 numElements, const MInt16 pixels[16][4], bool alphaTest,
             MInt16 sortedInputs[16][4], const float *channelWeights, MFloat &bestError, MInt16 bestEndpoints[2][3], MInt16 bestIndexes[16], MInt16 &bestRange)
         {
+            UNREFERENCED_PARAMETER(alphaTest);
+            UNREFERENCED_PARAMETER(flags);
+
             EndpointRefiner<3> refiner;
 
             refiner.Init(nCounts, channelWeights);
@@ -2898,7 +2908,7 @@ namespace
             {
                 for (int n = 0; n < counts[i]; n++)
                 {
-                    ParallelMath::Int16CompFlag valid = ParallelMath::Less(ParallelMath::MakeUInt16(n), numElements);
+                    ParallelMath::Int16CompFlag valid = ParallelMath::Less(ParallelMath::MakeUInt16(static_cast<uint16_t>(n)), numElements);
                     if (!ParallelMath::AnySet(valid))
                     {
                         escape = true;
@@ -2906,7 +2916,7 @@ namespace
                     }
 
                     MFloat weight = ParallelMath::Select(ParallelMath::Int16FlagToFloat(valid), ParallelMath::MakeFloat(1.0f), ParallelMath::MakeFloat(0.0f));
-                    refiner.Contribute(sortedInputs[e++], ParallelMath::MakeUInt16(i), weight);
+                    refiner.Contribute(sortedInputs[e++], ParallelMath::MakeUInt16(static_cast<uint16_t>(i)), weight);
                 }
 
                 if (escape)
@@ -2921,6 +2931,8 @@ namespace
 
         static void PackExplicitAlpha(DWORD flags, const InputBlock* inputs, int inputChannel, uint8_t* packedBlocks, size_t packedBlockStride)
         {
+            UNREFERENCED_PARAMETER(flags);
+
             float weights[1] = { 1.0f };
 
             MInt16 pixels[16];
@@ -3027,15 +3039,15 @@ namespace
 
                     ufep.Finish(tweak, 8, ep[0], ep[1]);
 
-                    if (isSigned)
-                        for (int epi = 0; epi < 2; epi++)
-                            ep[epi][0] = ParallelMath::Min(ep[epi][0], highTerminal);
-
                     EndpointRefiner<1> refiner;
                     refiner.Init(8, weights);
 
                     for (int refinePass = 0; refinePass < NumAlphaRefineRounds; refinePass++)
                     {
+                        if (isSigned)
+                            for (int epi = 0; epi < 2; epi++)
+                                ep[epi][0] = ParallelMath::Min(ep[epi][0], highTerminal);
+
                         IndexSelector<1> indexSelector;
                         indexSelector.Init(weights, ep, 8);
 
@@ -3051,7 +3063,8 @@ namespace
                             indexSelector.Reconstruct(index, &reconstructedPixel);
                             error = error + BCCommon::ComputeError<1>(flags, &reconstructedPixel, &pixels[px], weights);
 
-                            refiner.Contribute(&pixels[px], index, ParallelMath::MakeFloat(1.0f));
+                            if (refinePass != NumAlphaRefineRounds - 1)
+                                refiner.Contribute(&pixels[px], index, ParallelMath::MakeFloat(1.0f));
 
                             indexes[px] = index;
                         }
@@ -3170,21 +3183,17 @@ namespace
 
                         UnfinishedEndpoints<1> ufep = UnfinishedEndpoints<1>(base, offset);
 
-                        EndpointRefiner<1> refiner;
-                        refiner.Init(8, weights);
-
                         for (int tweak = 0; tweak < BCCommon::TweakRoundsForRange(6); tweak++)
                         {
                             MInt16 ep[2][1];
 
                             ufep.Finish(tweak, 8, ep[0], ep[1]);
 
+                            EndpointRefiner<1> refiner;
+                            refiner.Init(6, weights);
+
                             for (int refinePass = 0; refinePass < NumAlphaRefineRounds; refinePass++)
                             {
-                                EndpointRefiner<1> refiner;
-
-                                refiner.Init(6, weights);
-
                                 if (isSigned)
                                     for (int epi = 0; epi < 2; epi++)
                                         ep[epi][0] = ParallelMath::Min(ep[epi][0], highTerminal);
@@ -3216,7 +3225,8 @@ namespace
                                     ParallelMath::FloatCompFlag selectedIndexBetter = ParallelMath::Less(selectedIndexError, bestPixelError);
                                     MFloat refineWeight = ParallelMath::Select(selectedIndexBetter, ParallelMath::MakeFloat(1.0f), ParallelMath::MakeFloatZero());
 
-                                    refiner.Contribute(&pixels[px], selectedIndex, refineWeight);
+                                    if (refinePass != NumAlphaRefineRounds - 1)
+                                        refiner.Contribute(&pixels[px], selectedIndex, refineWeight);
 
                                     ParallelMath::ConditionalSet(index, ParallelMath::FloatFlagToInt16(selectedIndexBetter), selectedIndex);
                                     bestPixelError = ParallelMath::Min(bestPixelError, selectedIndexError);
@@ -3649,8 +3659,21 @@ static void PrepareSignedInputBlock(InputBlock inputBlocks[NUM_PARALLEL_BLOCKS],
     }
 }
 
+static void FillWeights(const TexCompressOptions &options, float channelWeights[4])
+{
+    if (options.flags & BC_FLAGS_UNIFORM)
+        channelWeights[0] = channelWeights[1] = channelWeights[2] = channelWeights[3] = 1.0f;
+    else
+    {
+        channelWeights[0] = options.redWeight;
+        channelWeights[1] = options.greenWeight;
+        channelWeights[2] = options.blueWeight;
+        channelWeights[3] = options.alphaWeight;
+    }
+}
+
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
+void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
 {
     assert(pColor);
     assert(pBC);
@@ -3659,27 +3682,27 @@ void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD 
     {
         InputBlock inputBlocks[NUM_PARALLEL_BLOCKS];
 
-        PrepareInputBlock(inputBlocks, pColor, flags);
+        PrepareInputBlock(inputBlocks, pColor, options.flags);
 
-        const float perceptualWeights[4] = { 0.2125f / 0.7154f, 1.0f, 0.0721f / 0.7154f, 1.0f };
-        const float uniformWeights[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        float channelWeights[4];
+        FillWeights(options, channelWeights);
 
-        BC7Computer::Pack(flags, inputBlocks, pBC, (flags & BC_FLAGS_UNIFORM) ? uniformWeights : perceptualWeights);
+        BC7Computer::Pack(options.flags, inputBlocks, pBC, channelWeights);
 
         pBC += ParallelMath::ParallelSize * 16;
     }
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC1Parallel(uint8_t *pBC, const XMVECTOR *pColor, _In_ float threshold, DWORD flags)
+void DirectX::D3DXEncodeBC1Parallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
 {
     assert(pColor);
     assert(pBC);
 
-    if (!(flags & TEX_COMPRESS_HIGH_QUALITY))
+    if (!(options.flags & TEX_COMPRESS_HIGH_QUALITY))
     {
         for (size_t i = 0; i < NUM_PARALLEL_BLOCKS; i++)
-            DirectX::D3DXEncodeBC1(pBC + i * 8, pColor + i * 16, threshold, flags);
+            DirectX::D3DXEncodeBC1(pBC + i * 8, pColor + i * 16, options);
 
         return;
     }
@@ -3688,27 +3711,27 @@ void DirectX::D3DXEncodeBC1Parallel(uint8_t *pBC, const XMVECTOR *pColor, _In_ f
     {
         InputBlock inputBlocks[NUM_PARALLEL_BLOCKS];
 
-        PrepareInputBlock(inputBlocks, pColor, flags);
+        PrepareInputBlock(inputBlocks, pColor, options.flags);
 
-        const float perceptualWeights[4] = { 0.2125f / 0.7154f, 1.0f, 0.0721f / 0.7154f, 1.0f };
-        const float uniformWeights[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        float channelWeights[4];
+        FillWeights(options, channelWeights);
 
-        S3TCComputer::PackRGB(flags, inputBlocks, pBC, 8, (flags & BC_FLAGS_UNIFORM) ? uniformWeights : perceptualWeights, true, threshold, true);
+        S3TCComputer::PackRGB(options.flags, inputBlocks, pBC, 8, channelWeights, true, options.threshold, true);
 
         pBC += ParallelMath::ParallelSize * 8;
     }
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC2Parallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
+void DirectX::D3DXEncodeBC2Parallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
 {
     assert(pColor);
     assert(pBC);
 
-    if (!(flags & TEX_COMPRESS_HIGH_QUALITY))
+    if (!(options.flags & TEX_COMPRESS_HIGH_QUALITY))
     {
         for (size_t i = 0; i < NUM_PARALLEL_BLOCKS; i++)
-            DirectX::D3DXEncodeBC2(pBC + i * 16, pColor + i * 16, flags);
+            DirectX::D3DXEncodeBC2(pBC + i * 16, pColor + i * 16, options);
 
         return;
     }
@@ -3717,28 +3740,28 @@ void DirectX::D3DXEncodeBC2Parallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD 
     {
         InputBlock inputBlocks[NUM_PARALLEL_BLOCKS];
 
-        PrepareInputBlock(inputBlocks, pColor, flags);
+        PrepareInputBlock(inputBlocks, pColor, options.flags);
 
-        const float perceptualWeights[4] = { 0.2125f / 0.7154f, 1.0f, 0.0721f / 0.7154f, 1.0f };
-        const float uniformWeights[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        float channelWeights[4];
+        FillWeights(options, channelWeights);
 
-        S3TCComputer::PackRGB(flags, inputBlocks, pBC + 8, 16, (flags & BC_FLAGS_UNIFORM) ? uniformWeights : perceptualWeights, false, 1.0f, true);
-        S3TCComputer::PackExplicitAlpha(flags, inputBlocks, 3, pBC, 16);
+        S3TCComputer::PackRGB(options.flags, inputBlocks, pBC + 8, 16, channelWeights, false, 1.0f, true);
+        S3TCComputer::PackExplicitAlpha(options.flags, inputBlocks, 3, pBC, 16);
 
         pBC += ParallelMath::ParallelSize * 16;
     }
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC3Parallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
+void DirectX::D3DXEncodeBC3Parallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
 {
     assert(pColor);
     assert(pBC);
 
-    if (!(flags & TEX_COMPRESS_HIGH_QUALITY))
+    if (!(options.flags & TEX_COMPRESS_HIGH_QUALITY))
     {
         for (size_t i = 0; i < NUM_PARALLEL_BLOCKS; i++)
-            DirectX::D3DXEncodeBC3(pBC + i * 16, pColor + i * 16, flags);
+            DirectX::D3DXEncodeBC3(pBC + i * 16, pColor + i * 16, options);
 
         return;
     }
@@ -3747,27 +3770,27 @@ void DirectX::D3DXEncodeBC3Parallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD 
     {
         InputBlock inputBlocks[NUM_PARALLEL_BLOCKS];
 
-        PrepareInputBlock(inputBlocks, pColor, flags);
+        PrepareInputBlock(inputBlocks, pColor, options.flags);
 
-        const float perceptualWeights[4] = { 0.2125f / 0.7154f, 1.0f, 0.0721f / 0.7154f, 1.0f };
-        const float uniformWeights[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        float channelWeights[4];
+        FillWeights(options, channelWeights);
 
-        S3TCComputer::PackRGB(flags, inputBlocks, pBC + 8, 16, (flags & BC_FLAGS_UNIFORM) ? uniformWeights : perceptualWeights, false, 1.0f, true);
-        S3TCComputer::PackInterpolatedAlpha(flags, inputBlocks, 3, pBC, 16, false);
+        S3TCComputer::PackRGB(options.flags, inputBlocks, pBC + 8, 16, channelWeights, false, 1.0f, true);
+        S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 3, pBC, 16, false);
 
         pBC += ParallelMath::ParallelSize * 16;
     }
 }
 
-void DirectX::D3DXEncodeBC4UParallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
+void DirectX::D3DXEncodeBC4UParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
 {
     assert(pColor);
     assert(pBC);
 
-    if (!(flags & TEX_COMPRESS_HIGH_QUALITY))
+    if (!(options.flags & TEX_COMPRESS_HIGH_QUALITY))
     {
         for (size_t i = 0; i < NUM_PARALLEL_BLOCKS; i++)
-            DirectX::D3DXEncodeBC4U(pBC + i * 8, pColor + i * 16, flags);
+            DirectX::D3DXEncodeBC4U(pBC + i * 8, pColor + i * 16, options);
 
         return;
     }
@@ -3776,23 +3799,23 @@ void DirectX::D3DXEncodeBC4UParallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD
     {
         InputBlock inputBlocks[NUM_PARALLEL_BLOCKS];
 
-        PrepareInputBlock(inputBlocks, pColor, flags);
+        PrepareInputBlock(inputBlocks, pColor, options.flags);
 
-        S3TCComputer::PackInterpolatedAlpha(flags, inputBlocks, 0, pBC, 8, false);
+        S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 0, pBC, 8, false);
 
         pBC += ParallelMath::ParallelSize * 8;
     }
 }
 
-void DirectX::D3DXEncodeBC4SParallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
+void DirectX::D3DXEncodeBC4SParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
 {
     assert(pColor);
     assert(pBC);
 
-    if (!(flags & TEX_COMPRESS_HIGH_QUALITY))
+    if (!(options.flags & TEX_COMPRESS_HIGH_QUALITY))
     {
         for (size_t i = 0; i < NUM_PARALLEL_BLOCKS; i++)
-            DirectX::D3DXEncodeBC4S(pBC + i * 8, pColor + i * 16, flags);
+            DirectX::D3DXEncodeBC4S(pBC + i * 8, pColor + i * 16, options);
 
         return;
     }
@@ -3801,23 +3824,23 @@ void DirectX::D3DXEncodeBC4SParallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD
     {
         InputBlock inputBlocks[NUM_PARALLEL_BLOCKS];
 
-        PrepareSignedInputBlock(inputBlocks, pColor, flags);
+        PrepareSignedInputBlock(inputBlocks, pColor, options.flags);
 
-        S3TCComputer::PackInterpolatedAlpha(flags, inputBlocks, 0, pBC, 8, true);
+        S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 0, pBC, 8, true);
 
         pBC += ParallelMath::ParallelSize * 8;
     }
 }
 
-void DirectX::D3DXEncodeBC5UParallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
+void DirectX::D3DXEncodeBC5UParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
 {
     assert(pColor);
     assert(pBC);
 
-    if (!(flags & TEX_COMPRESS_HIGH_QUALITY))
+    if (!(options.flags & TEX_COMPRESS_HIGH_QUALITY))
     {
         for (size_t i = 0; i < NUM_PARALLEL_BLOCKS; i++)
-            DirectX::D3DXEncodeBC5U(pBC + i * 16, pColor + i * 16, flags);
+            DirectX::D3DXEncodeBC5U(pBC + i * 16, pColor + i * 16, options);
 
         return;
     }
@@ -3826,25 +3849,25 @@ void DirectX::D3DXEncodeBC5UParallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD
     {
         InputBlock inputBlocks[NUM_PARALLEL_BLOCKS];
 
-        PrepareInputBlock(inputBlocks, pColor, flags);
+        PrepareInputBlock(inputBlocks, pColor, options.flags);
 
-        S3TCComputer::PackInterpolatedAlpha(flags, inputBlocks, 0, pBC, 16, false);
-        S3TCComputer::PackInterpolatedAlpha(flags, inputBlocks, 1, pBC + 8, 16, false);
+        S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 0, pBC, 16, false);
+        S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 1, pBC + 8, 16, false);
 
         pBC += ParallelMath::ParallelSize * 16;
     }
 }
 
 
-void DirectX::D3DXEncodeBC5SParallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD flags)
+void DirectX::D3DXEncodeBC5SParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
 {
     assert(pColor);
     assert(pBC);
 
-    if (!(flags & TEX_COMPRESS_HIGH_QUALITY))
+    if (!(options.flags & TEX_COMPRESS_HIGH_QUALITY))
     {
         for (size_t i = 0; i < NUM_PARALLEL_BLOCKS; i++)
-            DirectX::D3DXEncodeBC5S(pBC + i * 16, pColor + i * 16, flags);
+            DirectX::D3DXEncodeBC5S(pBC + i * 16, pColor + i * 16, options);
 
         return;
     }
@@ -3853,10 +3876,10 @@ void DirectX::D3DXEncodeBC5SParallel(uint8_t *pBC, const XMVECTOR *pColor, DWORD
     {
         InputBlock inputBlocks[NUM_PARALLEL_BLOCKS];
 
-        PrepareSignedInputBlock(inputBlocks, pColor, flags);
+        PrepareSignedInputBlock(inputBlocks, pColor, options.flags);
 
-        S3TCComputer::PackInterpolatedAlpha(flags, inputBlocks, 0, pBC, 16, true);
-        S3TCComputer::PackInterpolatedAlpha(flags, inputBlocks, 1, pBC + 8, 16, true);
+        S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 0, pBC, 16, true);
+        S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 1, pBC + 8, 16, true);
 
         pBC += ParallelMath::ParallelSize * 16;
     }

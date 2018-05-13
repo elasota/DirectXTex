@@ -95,6 +95,10 @@ enum OPTIONS
     OPT_COMPRESS_QUICK,
     OPT_COMPRESS_HQ,
     OPT_COMPRESS_DITHER,
+    OPT_COMPRESS_RWEIGHT,
+    OPT_COMPRESS_GWEIGHT,
+    OPT_COMPRESS_BWEIGHT,
+    OPT_COMPRESS_AWEIGHT,
     OPT_WIC_QUALITY,
     OPT_WIC_LOSSLESS,
     OPT_WIC_MULTIFRAME,
@@ -180,6 +184,10 @@ const SValue g_pOptions[] =
     { L"bcquick",       OPT_COMPRESS_QUICK },
     { L"bchq",          OPT_COMPRESS_HQ },
     { L"bcdither",      OPT_COMPRESS_DITHER },
+    { L"rweight",       OPT_COMPRESS_RWEIGHT },
+    { L"gweight",       OPT_COMPRESS_GWEIGHT },
+    { L"bweight",       OPT_COMPRESS_BWEIGHT },
+    { L"aweight",       OPT_COMPRESS_AWEIGHT },
     { L"wicq",          OPT_WIC_QUALITY },
     { L"wiclossless",   OPT_WIC_LOSSLESS },
     { L"wicmulti",      OPT_WIC_MULTIFRAME },
@@ -739,7 +747,8 @@ namespace
         wprintf(L"   -bcdither           Use dithering for BC1-3\n");
         wprintf(L"   -bcmax              Use exhaustive compression (BC7 only)\n");
         wprintf(L"   -bcquick            Use quick compression (BC7 only)\n");
-        wprintf(L"   -bchq               High-quality mode (BC7 only)\n");
+        wprintf(L"   -bchq               High-quality mode\n");
+        wprintf(L"   -bcweight <r g b a> Set compression channel importance\n");
         wprintf(L"   -wicq <quality>     When writing images with WIC use quality (0.0 to 1.0)\n");
         wprintf(L"   -wiclossless        When writing images with WIC use lossless mode\n");
         wprintf(L"   -wicmulti           When writing images with WIC encode multiframe images\n");
@@ -1115,6 +1124,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     DWORD colorKey = 0;
     DWORD dwRotateColor = 0;
     float paperWhiteNits = 200.f;
+    TexCompressOptions compressOptions;
 
     wchar_t szPrefix[MAX_PATH];
     wchar_t szSuffix[MAX_PATH];
@@ -1182,6 +1192,10 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             case OPT_FILELIST:
             case OPT_ROTATE_COLOR:
             case OPT_PAPER_WHITE_NITS:
+            case OPT_COMPRESS_RWEIGHT:
+            case OPT_COMPRESS_GWEIGHT:
+            case OPT_COMPRESS_BWEIGHT:
+            case OPT_COMPRESS_AWEIGHT:
                 if (!*pValue)
                 {
                     if ((iArg + 1 >= argc))
@@ -1465,6 +1479,13 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 break;
 
             case OPT_COMPRESS_UNIFORM:
+                if (dwOptions & (OPT_COMPRESS_RWEIGHT | OPT_COMPRESS_GWEIGHT | OPT_COMPRESS_BWEIGHT | OPT_COMPRESS_AWEIGHT))
+                {
+                    wprintf(L"Can't use -bcuniform with -rweight -gweight -bweight or -aweight\n\n");
+                    PrintUsage();
+                    return 1;
+                }
+
                 dwCompress |= TEX_COMPRESS_UNIFORM;
                 break;
 
@@ -1494,6 +1515,51 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
             case OPT_COMPRESS_DITHER:
                 dwCompress |= TEX_COMPRESS_DITHER;
+                break;
+
+            case OPT_COMPRESS_RWEIGHT:
+            case OPT_COMPRESS_GWEIGHT:
+            case OPT_COMPRESS_BWEIGHT:
+            case OPT_COMPRESS_AWEIGHT:
+                {
+                    float *weightField = nullptr;
+                    LPCWSTR optionName = nullptr;
+
+                    float weight;
+                    switch (dwOption)
+                    {
+                    case OPT_COMPRESS_RWEIGHT:
+                        weightField = &compressOptions.redWeight;
+                        optionName = L"-rweight";
+                        break;
+                    case OPT_COMPRESS_GWEIGHT:
+                        weightField = &compressOptions.greenWeight;
+                        optionName = L"-gweight";
+                        break;
+                    case OPT_COMPRESS_BWEIGHT:
+                        weightField = &compressOptions.blueWeight;
+                        optionName = L"-bweight";
+                        break;
+                    case OPT_COMPRESS_AWEIGHT:
+                        weightField = &compressOptions.alphaWeight;
+                        optionName = L"-aweight";
+                        break;
+                    default:
+                        assert(false, "Unhandled weight option");
+                    };
+
+                    if (swscanf_s(pValue, L"%f", &weight) != 1
+                        || (weight < 0.f)
+                        || (weight > 1.f))
+                    {
+                        wprintf(L"Invalid value specified with %ls (%ls)\n", optionName, pValue);
+                        printf("\n");
+                        PrintUsage();
+                        return 1;
+                    }
+
+                    *weightField = weight;
+                }
                 break;
 
             case OPT_WIC_QUALITY:
@@ -2761,7 +2827,8 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 }
                 else
                 {
-                    hr = Compress(img, nimg, info, tformat, cflags | dwSRGB, TEX_THRESHOLD_DEFAULT, *timage);
+                    compressOptions.flags = cflags | dwSRGB;
+                    hr = CompressEx(img, nimg, info, tformat, compressOptions, *timage);
                 }
                 if (FAILED(hr))
                 {
