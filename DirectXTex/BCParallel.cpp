@@ -3407,7 +3407,7 @@ namespace
                     IndexSelector<3> sortSelector;
                     sortSelector.Init(channelWeights, sortEP, 1 << 11);
 
-                    for (int px = 0; px < 16; px++)
+                    for (uint16_t px = 0; px < 16; px++)
                     {
                         MInt16 sortBin = (sortSelector.SelectIndex(pixels[px]) << 4);
 
@@ -3415,7 +3415,7 @@ namespace
                         {
                             ParallelMath::Int16CompFlag isTransparent = ParallelMath::Less(pixels[px][3], ParallelMath::MakeUInt16(255));
 
-                            ParallelMath::ConditionalSet(sortBin, isTransparent, ParallelMath::MakeUInt16(-16));
+                            ParallelMath::ConditionalSet(sortBin, isTransparent, ParallelMath::MakeUInt16(0xfff0));
                         }
 
                         sortBin = sortBin + ParallelMath::MakeUInt16(px);
@@ -3495,8 +3495,6 @@ namespace
 
                         for (int n1 = 0; n1 <= remainingFor1; n1++)
                         {
-                            int remainingFor2 = 16 - n1 - n0;
-
                             int n2 = 16 - n1 - n0;
 
                             int counts[3] = { n0, n1, n2 };
@@ -3553,7 +3551,6 @@ namespace
                 }
 
                 int indexOrder[4];
-                bool flipIndexes = false;
 
                 if (range == 4)
                 {
@@ -3618,6 +3615,8 @@ namespace
 
 static void PrepareInputBlock(InputBlock inputBlocks[NUM_PARALLEL_BLOCKS], const XMVECTOR *&pColor, DWORD flags)
 {
+    UNREFERENCED_PARAMETER(flags);
+
     for (size_t block = 0; block < ParallelMath::ParallelSize; block++)
     {
         InputBlock& inputBlock = inputBlocks[block];
@@ -3640,6 +3639,8 @@ static void PrepareInputBlock(InputBlock inputBlocks[NUM_PARALLEL_BLOCKS], const
 // Signed input blocks are converted into unsigned space, with the maximum value being 254
 static void PrepareSignedInputBlock(InputBlock inputBlocks[NUM_PARALLEL_BLOCKS], const XMVECTOR *&pColor, DWORD flags)
 {
+    UNREFERENCED_PARAMETER(flags);
+
     for (size_t block = 0; block < ParallelMath::ParallelSize; block++)
     {
         InputBlock& inputBlock = inputBlocks[block];

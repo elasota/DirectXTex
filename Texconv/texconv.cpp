@@ -1538,7 +1538,8 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                         optionName = L"-aweight";
                         break;
                     default:
-                        assert(false, "Unhandled weight option");
+                        assert(false);
+                        return 1;
                     };
 
                     if (swscanf_s(pValue, L"%f", &weight) != 1
