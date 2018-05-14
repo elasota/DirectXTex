@@ -16,6 +16,7 @@ namespace analyze
         {
             BC7,
             BC6H,
+            DXT1,
             DXT5,
         }
 
@@ -335,6 +336,8 @@ namespace analyze
 
                 if (targetFormat == CompressedFormat.BC7)
                     args += "-fd BC7 ";
+                else if (targetFormat == CompressedFormat.DXT1)
+                    args += "-fd DXT1 ";
                 else if (targetFormat == CompressedFormat.DXT5)
                     args += "-fd DXT5 ";
                 else if (targetFormat == CompressedFormat.BC6H)
@@ -360,8 +363,10 @@ namespace analyze
                 string args = "-nomips -alpha ";
                 if (targetFormat == CompressedFormat.BC7)
                     args += "-bc7 ";
+                else if (targetFormat == CompressedFormat.DXT1)
+                    args += "-bc1 ";
                 else if (targetFormat == CompressedFormat.DXT5)
-                    args += "-dxt5 ";
+                    args += "-bc3 ";
                 else if (targetFormat == CompressedFormat.BC6H)
                     args += "-bc6 ";
 
@@ -383,6 +388,8 @@ namespace analyze
 
                 if (targetFormat == CompressedFormat.BC7)
                     args += "-srgbi -srgbo -f BC7_UNORM ";
+                else if (targetFormat == CompressedFormat.DXT1)
+                    args += "-srgbi -srgbo -f BC1_UNORM ";
                 else if (targetFormat == CompressedFormat.DXT5)
                     args += "-srgbi -srgbo -f BC3_UNORM ";
                 else if (targetFormat == CompressedFormat.BC6H)
@@ -438,10 +445,10 @@ namespace analyze
         {
             bool runCompressonator = false;
             bool runNVTT = false;
-            bool runDXCPU = true;
-            bool runDXCPU_Stock = true;
+            bool runDXCPU = false;
+            bool runDXCPU_Stock = false;
             bool runDX = false;
-            bool runDXHQ = true;
+            bool runDXHQ = false;
             bool runFasTC = false;
             bool runISPC = false;
             bool runConversions = false;
@@ -459,7 +466,7 @@ namespace analyze
 
             string testDir = "tests\\";
 
-            CompressedFormat targetFormat = CompressedFormat.DXT5;
+            CompressedFormat targetFormat = CompressedFormat.BC7;
             BenchmarkDelegate benchmarkFunc = BenchmarkLDR;
             bool testAlpha = true;
             
