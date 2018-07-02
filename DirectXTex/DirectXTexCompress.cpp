@@ -56,8 +56,8 @@ namespace
         case DXGI_FORMAT_BC4_SNORM:         pfEncode = D3DXEncodeBC4SParallel;  blocksize = 8;   cflags = TEX_FILTER_RGB_COPY_RED; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
         case DXGI_FORMAT_BC5_UNORM:         pfEncode = D3DXEncodeBC5UParallel;  blocksize = 16;  cflags = TEX_FILTER_RGB_COPY_RED | TEX_FILTER_RGB_COPY_GREEN; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
         case DXGI_FORMAT_BC5_SNORM:         pfEncode = D3DXEncodeBC5SParallel;  blocksize = 16;  cflags = TEX_FILTER_RGB_COPY_RED | TEX_FILTER_RGB_COPY_GREEN; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
-        case DXGI_FORMAT_BC6H_UF16:         pfEncode = D3DXEncodeBC6HU; blocksize = 16;  cflags = 0; nBlocksPerChunk = 1; break;
-        case DXGI_FORMAT_BC6H_SF16:         pfEncode = D3DXEncodeBC6HS; blocksize = 16;  cflags = 0; nBlocksPerChunk = 1; break;
+        case DXGI_FORMAT_BC6H_UF16:         pfEncode = D3DXEncodeBC6HUParallel; blocksize = 16;  cflags = 0; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
+        case DXGI_FORMAT_BC6H_SF16:         pfEncode = D3DXEncodeBC6HSParallel; blocksize = 16;  cflags = 0; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
         case DXGI_FORMAT_BC7_UNORM:
         case DXGI_FORMAT_BC7_UNORM_SRGB:    pfEncode = D3DXEncodeBC7Parallel; blocksize = 16; cflags = 0; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
         default:                            pfEncode = nullptr;         blocksize = 0;   cflags = 0; nBlocksPerChunk = 1; return false;

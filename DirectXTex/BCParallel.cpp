@@ -77,6 +77,45 @@ namespace BC7Data
         { PBitMode_PerEndpoint, AlphaMode_Combined, 5, 5, 6, 2, 2, 0, false }  // 7
     };
 
+    struct BC6HModeInfo
+    {
+        uint16_t m_modeID;
+        bool m_partitioned;
+        bool m_transformed;
+        int m_aPrec;
+        int m_bPrec[3];
+    };
+
+    // [partitioned][precision]
+    bool g_hdrModesExistForPrecision[2][17] =
+    {
+        //0      1      2      3      4      5      6      7      8      9      10     11     12     13     14     15     16
+        { false, false, false, false, false, false, false, false, false, false, true,  true,  true,  false, false, false, true },
+        { false, false, false, false, false, false, true,  true,  true,  true,  true,  true,  false, false, false, false, false },
+    };
+
+    BC6HModeInfo g_hdrModes[] =
+    {
+        { 0x00, true,  true,  10, { 5, 5, 5 } },
+        { 0x01, true,  true,  7,  { 6, 6, 6 } },
+        { 0x02, true,  true,  11, { 5, 4, 4 } },
+        { 0x06, true,  true,  11, { 4, 5, 4 } },
+        { 0x0a, true,  true,  11, { 4, 4, 5 } },
+        { 0x0e, true,  true,  9,  { 5, 5, 5 } },
+        { 0x12, true,  true,  8,  { 6, 5, 5 } },
+        { 0x16, true,  true,  8,  { 5, 6, 5 } },
+        { 0x1a, true,  true,  8,  { 5, 5, 6 } },
+        { 0x1e, true,  false, 6,  { 6, 6, 6 } },
+        { 0x03, false, false, 10, { 10, 10, 10 } },
+        { 0x07, false, true,  11, { 9, 9, 9 } },
+        { 0x0b, false, true,  12, { 8, 8, 8 } },
+        { 0x0f, false, true,  16, { 4, 4, 4 } },
+    };
+
+    const int g_maxHDRPrecision = 16;
+
+    static const size_t g_numHDRModes = sizeof(g_hdrModes) / sizeof(g_hdrModes[0]);
+
     static uint16_t g_partitionMap[64] =
     {
         0xCCCC, 0x8888, 0xEEEE, 0xECC8,
@@ -691,6 +730,205 @@ namespace BC7Data
     static const int g_maxFragmentsPerMode = (g_numShapes2 > g_numShapes3) ? g_numShapes2 : g_numShapes3;
 }
 
+namespace BC6HData
+{
+    enum EField
+    {
+        NA, // N/A
+        M,  // Mode
+        D,  // Shape
+        RW,
+        RX,
+        RY,
+        RZ,
+        GW,
+        GX,
+        GY,
+        GZ,
+        BW,
+        BX,
+        BY,
+        BZ,
+    };
+
+    struct ModeDescriptor
+    {
+        EField m_eField;
+        uint8_t   m_uBit;
+    };
+
+    const ModeDescriptor g_modeDescriptors[14][82] =
+    {
+        {   // Mode 1 (0x00) - 10 5 5 5
+            { M, 0 },{ M, 1 },{ GY, 4 },{ BY, 4 },{ BZ, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ RW, 7 },{ RW, 8 },{ RW, 9 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ GW, 7 },{ GW, 8 },{ GW, 9 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BW, 7 },{ BW, 8 },{ BW, 9 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RX, 4 },
+            { GZ, 4 },{ GY, 0 },{ GY, 1 },{ GY, 2 },{ GY, 3 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GX, 4 },
+            { BZ, 0 },{ GZ, 0 },{ GZ, 1 },{ GZ, 2 },{ GZ, 3 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BX, 4 },
+            { BZ, 1 },{ BY, 0 },{ BY, 1 },{ BY, 2 },{ BY, 3 },{ RY, 0 },{ RY, 1 },{ RY, 2 },{ RY, 3 },{ RY, 4 },
+            { BZ, 2 },{ RZ, 0 },{ RZ, 1 },{ RZ, 2 },{ RZ, 3 },{ RZ, 4 },{ BZ, 3 },{ D, 0 },{ D, 1 },{ D, 2 },
+            { D, 3 },{ D, 4 },
+        },
+
+        {   // Mode 2 (0x01) - 7 6 6 6
+            { M, 0 },{ M, 1 },{ GY, 5 },{ GZ, 4 },{ GZ, 5 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ BZ, 0 },{ BZ, 1 },{ BY, 4 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ BY, 5 },{ BZ, 2 },{ GY, 4 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BZ, 3 },{ BZ, 5 },{ BZ, 4 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RX, 4 },
+            { RX, 5 },{ GY, 0 },{ GY, 1 },{ GY, 2 },{ GY, 3 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GX, 4 },
+            { GX, 5 },{ GZ, 0 },{ GZ, 1 },{ GZ, 2 },{ GZ, 3 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BX, 4 },
+            { BX, 5 },{ BY, 0 },{ BY, 1 },{ BY, 2 },{ BY, 3 },{ RY, 0 },{ RY, 1 },{ RY, 2 },{ RY, 3 },{ RY, 4 },
+            { RY, 5 },{ RZ, 0 },{ RZ, 1 },{ RZ, 2 },{ RZ, 3 },{ RZ, 4 },{ RZ, 5 },{ D, 0 },{ D, 1 },{ D, 2 },
+            { D, 3 },{ D, 4 },
+        },
+
+        {   // Mode 3 (0x02) - 11 5 4 4
+            { M, 0 },{ M, 1 },{ M, 2 },{ M, 3 },{ M, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ RW, 7 },{ RW, 8 },{ RW, 9 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ GW, 7 },{ GW, 8 },{ GW, 9 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BW, 7 },{ BW, 8 },{ BW, 9 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RX, 4 },
+            { RW,10 },{ GY, 0 },{ GY, 1 },{ GY, 2 },{ GY, 3 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GW,10 },
+            { BZ, 0 },{ GZ, 0 },{ GZ, 1 },{ GZ, 2 },{ GZ, 3 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BW,10 },
+            { BZ, 1 },{ BY, 0 },{ BY, 1 },{ BY, 2 },{ BY, 3 },{ RY, 0 },{ RY, 1 },{ RY, 2 },{ RY, 3 },{ RY, 4 },
+            { BZ, 2 },{ RZ, 0 },{ RZ, 1 },{ RZ, 2 },{ RZ, 3 },{ RZ, 4 },{ BZ, 3 },{ D, 0 },{ D, 1 },{ D, 2 },
+            { D, 3 },{ D, 4 },
+        },
+
+        {   // Mode 4 (0x06) - 11 4 5 4
+            { M, 0 },{ M, 1 },{ M, 2 },{ M, 3 },{ M, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ RW, 7 },{ RW, 8 },{ RW, 9 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ GW, 7 },{ GW, 8 },{ GW, 9 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BW, 7 },{ BW, 8 },{ BW, 9 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RW,10 },
+            { GZ, 4 },{ GY, 0 },{ GY, 1 },{ GY, 2 },{ GY, 3 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GX, 4 },
+            { GW,10 },{ GZ, 0 },{ GZ, 1 },{ GZ, 2 },{ GZ, 3 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BW,10 },
+            { BZ, 1 },{ BY, 0 },{ BY, 1 },{ BY, 2 },{ BY, 3 },{ RY, 0 },{ RY, 1 },{ RY, 2 },{ RY, 3 },{ BZ, 0 },
+            { BZ, 2 },{ RZ, 0 },{ RZ, 1 },{ RZ, 2 },{ RZ, 3 },{ GY, 4 },{ BZ, 3 },{ D, 0 },{ D, 1 },{ D, 2 },
+            { D, 3 },{ D, 4 },
+        },
+
+        {   // Mode 5 (0x0a) - 11 4 4 5
+            { M, 0 },{ M, 1 },{ M, 2 },{ M, 3 },{ M, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ RW, 7 },{ RW, 8 },{ RW, 9 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ GW, 7 },{ GW, 8 },{ GW, 9 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BW, 7 },{ BW, 8 },{ BW, 9 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RW,10 },
+            { BY, 4 },{ GY, 0 },{ GY, 1 },{ GY, 2 },{ GY, 3 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GW,10 },
+            { BZ, 0 },{ GZ, 0 },{ GZ, 1 },{ GZ, 2 },{ GZ, 3 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BX, 4 },
+            { BW,10 },{ BY, 0 },{ BY, 1 },{ BY, 2 },{ BY, 3 },{ RY, 0 },{ RY, 1 },{ RY, 2 },{ RY, 3 },{ BZ, 1 },
+            { BZ, 2 },{ RZ, 0 },{ RZ, 1 },{ RZ, 2 },{ RZ, 3 },{ BZ, 4 },{ BZ, 3 },{ D, 0 },{ D, 1 },{ D, 2 },
+            { D, 3 },{ D, 4 },
+        },
+
+        {   // Mode 6 (0x0e) - 9 5 5 5
+            { M, 0 },{ M, 1 },{ M, 2 },{ M, 3 },{ M, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ RW, 7 },{ RW, 8 },{ BY, 4 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ GW, 7 },{ GW, 8 },{ GY, 4 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BW, 7 },{ BW, 8 },{ BZ, 4 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RX, 4 },
+            { GZ, 4 },{ GY, 0 },{ GY, 1 },{ GY, 2 },{ GY, 3 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GX, 4 },
+            { BZ, 0 },{ GZ, 0 },{ GZ, 1 },{ GZ, 2 },{ GZ, 3 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BX, 4 },
+            { BZ, 1 },{ BY, 0 },{ BY, 1 },{ BY, 2 },{ BY, 3 },{ RY, 0 },{ RY, 1 },{ RY, 2 },{ RY, 3 },{ RY, 4 },
+            { BZ, 2 },{ RZ, 0 },{ RZ, 1 },{ RZ, 2 },{ RZ, 3 },{ RZ, 4 },{ BZ, 3 },{ D, 0 },{ D, 1 },{ D, 2 },
+            { D, 3 },{ D, 4 },
+        },
+
+        {   // Mode 7 (0x12) - 8 6 5 5
+            { M, 0 },{ M, 1 },{ M, 2 },{ M, 3 },{ M, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ RW, 7 },{ GZ, 4 },{ BY, 4 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ GW, 7 },{ BZ, 2 },{ GY, 4 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BW, 7 },{ BZ, 3 },{ BZ, 4 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RX, 4 },
+            { RX, 5 },{ GY, 0 },{ GY, 1 },{ GY, 2 },{ GY, 3 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GX, 4 },
+            { BZ, 0 },{ GZ, 0 },{ GZ, 1 },{ GZ, 2 },{ GZ, 3 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BX, 4 },
+            { BZ, 1 },{ BY, 0 },{ BY, 1 },{ BY, 2 },{ BY, 3 },{ RY, 0 },{ RY, 1 },{ RY, 2 },{ RY, 3 },{ RY, 4 },
+            { RY, 5 },{ RZ, 0 },{ RZ, 1 },{ RZ, 2 },{ RZ, 3 },{ RZ, 4 },{ RZ, 5 },{ D, 0 },{ D, 1 },{ D, 2 },
+            { D, 3 },{ D, 4 },
+        },
+
+        {   // Mode 8 (0x16) - 8 5 6 5
+            { M, 0 },{ M, 1 },{ M, 2 },{ M, 3 },{ M, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ RW, 7 },{ BZ, 0 },{ BY, 4 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ GW, 7 },{ GY, 5 },{ GY, 4 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BW, 7 },{ GZ, 5 },{ BZ, 4 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RX, 4 },
+            { GZ, 4 },{ GY, 0 },{ GY, 1 },{ GY, 2 },{ GY, 3 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GX, 4 },
+            { GX, 5 },{ GZ, 0 },{ GZ, 1 },{ GZ, 2 },{ GZ, 3 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BX, 4 },
+            { BZ, 1 },{ BY, 0 },{ BY, 1 },{ BY, 2 },{ BY, 3 },{ RY, 0 },{ RY, 1 },{ RY, 2 },{ RY, 3 },{ RY, 4 },
+            { BZ, 2 },{ RZ, 0 },{ RZ, 1 },{ RZ, 2 },{ RZ, 3 },{ RZ, 4 },{ BZ, 3 },{ D, 0 },{ D, 1 },{ D, 2 },
+            { D, 3 },{ D, 4 },
+        },
+
+        {   // Mode 9 (0x1a) - 8 5 5 6
+            { M, 0 },{ M, 1 },{ M, 2 },{ M, 3 },{ M, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ RW, 7 },{ BZ, 1 },{ BY, 4 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ GW, 7 },{ BY, 5 },{ GY, 4 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BW, 7 },{ BZ, 5 },{ BZ, 4 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RX, 4 },
+            { GZ, 4 },{ GY, 0 },{ GY, 1 },{ GY, 2 },{ GY, 3 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GX, 4 },
+            { BZ, 0 },{ GZ, 0 },{ GZ, 1 },{ GZ, 2 },{ GZ, 3 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BX, 4 },
+            { BX, 5 },{ BY, 0 },{ BY, 1 },{ BY, 2 },{ BY, 3 },{ RY, 0 },{ RY, 1 },{ RY, 2 },{ RY, 3 },{ RY, 4 },
+            { BZ, 2 },{ RZ, 0 },{ RZ, 1 },{ RZ, 2 },{ RZ, 3 },{ RZ, 4 },{ BZ, 3 },{ D, 0 },{ D, 1 },{ D, 2 },
+            { D, 3 },{ D, 4 },
+        },
+
+        {   // Mode 10 (0x1e) - 6 6 6 6
+            { M, 0 },{ M, 1 },{ M, 2 },{ M, 3 },{ M, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ GZ, 4 },{ BZ, 0 },{ BZ, 1 },{ BY, 4 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GY, 5 },{ BY, 5 },{ BZ, 2 },{ GY, 4 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ GZ, 5 },{ BZ, 3 },{ BZ, 5 },{ BZ, 4 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RX, 4 },
+            { RX, 5 },{ GY, 0 },{ GY, 1 },{ GY, 2 },{ GY, 3 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GX, 4 },
+            { GX, 5 },{ GZ, 0 },{ GZ, 1 },{ GZ, 2 },{ GZ, 3 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BX, 4 },
+            { BX, 5 },{ BY, 0 },{ BY, 1 },{ BY, 2 },{ BY, 3 },{ RY, 0 },{ RY, 1 },{ RY, 2 },{ RY, 3 },{ RY, 4 },
+            { RY, 5 },{ RZ, 0 },{ RZ, 1 },{ RZ, 2 },{ RZ, 3 },{ RZ, 4 },{ RZ, 5 },{ D, 0 },{ D, 1 },{ D, 2 },
+            { D, 3 },{ D, 4 },
+        },
+
+        {   // Mode 11 (0x03) - 10 10
+            { M, 0 },{ M, 1 },{ M, 2 },{ M, 3 },{ M, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ RW, 7 },{ RW, 8 },{ RW, 9 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ GW, 7 },{ GW, 8 },{ GW, 9 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BW, 7 },{ BW, 8 },{ BW, 9 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RX, 4 },
+            { RX, 5 },{ RX, 6 },{ RX, 7 },{ RX, 8 },{ RX, 9 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GX, 4 },
+            { GX, 5 },{ GX, 6 },{ GX, 7 },{ GX, 8 },{ GX, 9 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BX, 4 },
+            { BX, 5 },{ BX, 6 },{ BX, 7 },{ BX, 8 },{ BX, 9 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },
+            { NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },
+            { NA, 0 },{ NA, 0 },
+        },
+
+        {   // Mode 12 (0x07) - 11 9
+            { M, 0 },{ M, 1 },{ M, 2 },{ M, 3 },{ M, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ RW, 7 },{ RW, 8 },{ RW, 9 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ GW, 7 },{ GW, 8 },{ GW, 9 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BW, 7 },{ BW, 8 },{ BW, 9 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RX, 4 },
+            { RX, 5 },{ RX, 6 },{ RX, 7 },{ RX, 8 },{ RW,10 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GX, 4 },
+            { GX, 5 },{ GX, 6 },{ GX, 7 },{ GX, 8 },{ GW,10 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BX, 4 },
+            { BX, 5 },{ BX, 6 },{ BX, 7 },{ BX, 8 },{ BW,10 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },
+            { NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },
+            { NA, 0 },{ NA, 0 },
+        },
+
+        {   // Mode 13 (0x0b) - 12 8
+            { M, 0 },{ M, 1 },{ M, 2 },{ M, 3 },{ M, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ RW, 7 },{ RW, 8 },{ RW, 9 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ GW, 7 },{ GW, 8 },{ GW, 9 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BW, 7 },{ BW, 8 },{ BW, 9 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RX, 4 },
+            { RX, 5 },{ RX, 6 },{ RX, 7 },{ RW,11 },{ RW,10 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GX, 4 },
+            { GX, 5 },{ GX, 6 },{ GX, 7 },{ GW,11 },{ GW,10 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BX, 4 },
+            { BX, 5 },{ BX, 6 },{ BX, 7 },{ BW,11 },{ BW,10 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },
+            { NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },
+            { NA, 0 },{ NA, 0 },
+        },
+
+        {   // Mode 14 (0x0f) - 16 4
+            { M, 0 },{ M, 1 },{ M, 2 },{ M, 3 },{ M, 4 },{ RW, 0 },{ RW, 1 },{ RW, 2 },{ RW, 3 },{ RW, 4 },
+            { RW, 5 },{ RW, 6 },{ RW, 7 },{ RW, 8 },{ RW, 9 },{ GW, 0 },{ GW, 1 },{ GW, 2 },{ GW, 3 },{ GW, 4 },
+            { GW, 5 },{ GW, 6 },{ GW, 7 },{ GW, 8 },{ GW, 9 },{ BW, 0 },{ BW, 1 },{ BW, 2 },{ BW, 3 },{ BW, 4 },
+            { BW, 5 },{ BW, 6 },{ BW, 7 },{ BW, 8 },{ BW, 9 },{ RX, 0 },{ RX, 1 },{ RX, 2 },{ RX, 3 },{ RW,15 },
+            { RW,14 },{ RW,13 },{ RW,12 },{ RW,11 },{ RW,10 },{ GX, 0 },{ GX, 1 },{ GX, 2 },{ GX, 3 },{ GW,15 },
+            { GW,14 },{ GW,13 },{ GW,12 },{ GW,11 },{ GW,10 },{ BX, 0 },{ BX, 1 },{ BX, 2 },{ BX, 3 },{ BW,15 },
+            { BW,14 },{ BW,13 },{ BW,12 },{ BW,11 },{ BW,10 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },
+            { NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },{ NA, 0 },
+            { NA, 0 },{ NA, 0 },
+        },
+    };
+}
+
 namespace
 {
     struct InputBlock
@@ -698,11 +936,45 @@ namespace
         int32_t m_pixels[16];
     };
 
+    struct InputBlock16
+    {
+        int64_t m_pixels[16];
+    };
+
 #if (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(_M_X64)
     // SSE2 version
 
     struct ParallelMath
     {
+        template<unsigned int TRoundingMode>
+        struct RoundForScope
+        {
+            unsigned int m_oldRoundingMode;
+
+            RoundForScope()
+            {
+                m_oldRoundingMode = _MM_GET_ROUNDING_MODE();
+                _MM_SET_ROUNDING_MODE(TRoundingMode);
+            }
+
+            ~RoundForScope()
+            {
+                _MM_SET_ROUNDING_MODE(m_oldRoundingMode);
+            }
+        };
+
+        struct RoundTowardZeroForScope : RoundForScope<_MM_ROUND_MODE_TOWARD_ZERO>
+        {
+        };
+
+        struct RoundTowardNearestForScope : RoundForScope<_MM_ROUND_MODE_NEAREST>
+        {
+        };
+
+        struct RoundUpForScope : RoundForScope<_MM_ROUND_MODE_UP>
+        {
+        };
+
         static const int ParallelSize = 8;
 
         struct Int16
@@ -755,6 +1027,35 @@ namespace
         struct Int32
         {
             __m128i m_values[2];
+
+            inline Int32 operator+(const Int32& other) const
+            {
+                Int32 result;
+                result.m_values[0] = _mm_add_epi32(m_values[0], other.m_values[0]);
+                result.m_values[1] = _mm_add_epi32(m_values[1], other.m_values[1]);
+                return result;
+            }
+
+            inline Int32 operator-(const Int32& other) const
+            {
+                Int32 result;
+                result.m_values[0] = _mm_sub_epi32(m_values[0], other.m_values[0]);
+                result.m_values[1] = _mm_sub_epi32(m_values[1], other.m_values[1]);
+                return result;
+            }
+
+            inline Int32 operator<<(const int other) const
+            {
+                Int32 result;
+                result.m_values[0] = _mm_slli_epi32(m_values[0], other);
+                result.m_values[1] = _mm_slli_epi32(m_values[1], other);
+                return result;
+            }
+        };
+
+        struct Int64
+        {
+            __m128i m_values[4];
         };
 
         struct Float
@@ -769,11 +1070,27 @@ namespace
                 return result;
             }
 
+            inline Float operator+(float other) const
+            {
+                Float result;
+                result.m_values[0] = _mm_add_ps(m_values[0], _mm_set1_ps(other));
+                result.m_values[1] = _mm_add_ps(m_values[1], _mm_set1_ps(other));
+                return result;
+            }
+
             inline Float operator-(const Float& other) const
             {
                 Float result;
                 result.m_values[0] = _mm_sub_ps(m_values[0], other.m_values[0]);
                 result.m_values[1] = _mm_sub_ps(m_values[1], other.m_values[1]);
+                return result;
+            }
+
+            inline Float operator-() const
+            {
+                Float result;
+                result.m_values[0] = _mm_sub_ps(_mm_setzero_ps(), m_values[0]);
+                result.m_values[1] = _mm_sub_ps(_mm_setzero_ps(), m_values[1]);
                 return result;
             }
 
@@ -883,7 +1200,39 @@ namespace
             ConditionalSet(v, Equal(v, MakeFloatZero()), MakeFloat(1.0f));
         }
 
-        static Int16 Min(Int16 a, Int16 b)
+        static Int16 TruncateToPrecision(Int16 v, int precision, bool isSigned)
+        {
+            int lostBits = 16 - precision;
+            if (lostBits == 0)
+                return v;
+
+            Int16 result;
+            result.m_value = _mm_slli_epi16(v.m_value, lostBits);
+            if (isSigned)
+                result.m_value = _mm_srai_epi16(v.m_value, lostBits);
+            else
+                result.m_value = _mm_srli_epi16(v.m_value, lostBits);
+
+            return result;
+        }
+
+        static Int16 MinUnsigned(Int16 a, Int16 b)
+        {
+            __m128i bitFlip = _mm_set1_epi16(-32768);
+
+            Int16 result;
+            result.m_value = _mm_xor_si128(_mm_min_epi16(_mm_xor_si128(a.m_value, bitFlip), _mm_xor_si128(b.m_value, bitFlip)), bitFlip);
+            return result;
+        }
+
+        static Int16 MinSigned(Int16 a, Int16 b)
+        {
+            Int16 result;
+            result.m_value = _mm_min_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static Int16 MinU8(Int16 a, Int16 b)
         {
             Int16 result;
             result.m_value = _mm_min_epi16(a.m_value, b.m_value);
@@ -898,7 +1247,23 @@ namespace
             return result;
         }
 
-        static Int16 Max(Int16 a, Int16 b)
+        static Int16 MaxUnsigned(Int16 a, Int16 b)
+        {
+            __m128i bitFlip = _mm_set1_epi16(-32768);
+
+            Int16 result;
+            result.m_value = _mm_xor_si128(_mm_min_epi16(_mm_xor_si128(a.m_value, bitFlip), _mm_xor_si128(b.m_value, bitFlip)), bitFlip);
+            return result;
+        }
+
+        static Int16 MaxSigned(Int16 a, Int16 b)
+        {
+            Int16 result;
+            result.m_value = _mm_max_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static Int16 MaxU8(Int16 a, Int16 b)
         {
             Int16 result;
             result.m_value = _mm_max_epi16(a.m_value, b.m_value);
@@ -937,7 +1302,23 @@ namespace
                 reinterpret_cast<int32_t*>(&outPackedPx.m_values[1])[i] = inputBlocks[i + 4].m_pixels[pxOffset];
         }
 
+        static void ConvertHDRInputs(const InputBlock16* inputBlocks, int pxOffset, int channel, Int16& chOut)
+        {
+            for (int i = 0; i < 8; i++)
+                reinterpret_cast<int16_t*>(&chOut.m_value)[i] = static_cast<int16_t>((inputBlocks[i].m_pixels[pxOffset] >> (channel * 16)) & 0xffff);
+        }
+
         static void UnpackChannel(Int32 inputPx, int ch, Int16& chOut)
+        {
+            __m128i ch0 = _mm_srli_epi32(inputPx.m_values[0], ch * 8);
+            __m128i ch1 = _mm_srli_epi32(inputPx.m_values[1], ch * 8);
+            ch0 = _mm_and_si128(ch0, _mm_set1_epi32(0xff));
+            ch1 = _mm_and_si128(ch1, _mm_set1_epi32(0xff));
+
+            chOut.m_value = _mm_packs_epi32(ch0, ch1);
+        }
+
+        static void UnpackChannel(Int64 inputPx, int ch, Int16& chOut)
         {
             __m128i ch0 = _mm_srli_epi32(inputPx.m_values[0], ch * 8);
             __m128i ch1 = _mm_srli_epi32(inputPx.m_values[1], ch * 8);
@@ -965,6 +1346,21 @@ namespace
         {
             Int16 result;
             result.m_value = _mm_set1_epi16(static_cast<short>(v));
+            return result;
+        }
+
+        static Int16 MakeSInt16(int16_t v)
+        {
+            Int16 result;
+            result.m_value = _mm_set1_epi16(static_cast<short>(v));
+            return result;
+        }
+
+        static Int32 MakeSInt32(int32_t v)
+        {
+            Int32 result;
+            result.m_values[0] = _mm_set1_epi32(v);
+            result.m_values[1] = _mm_set1_epi32(v);
             return result;
         }
 
@@ -998,7 +1394,7 @@ namespace
         static Int16CompFlag LessOrEqual(Int16 a, Int16 b)
         {
             Int16CompFlag result;
-            result.m_value = _mm_cmpgt_epi16(b.m_value, a.m_value);
+            result.m_value = _mm_or_si128(_mm_cmplt_epi16(a.m_value, b.m_value), _mm_cmpeq_epi16(a.m_value, b.m_value));
             return result;
         }
 
@@ -1041,6 +1437,39 @@ namespace
             return result;
         }
 
+        static Int32 UInt16ToInt32(Int16 v)
+        {
+            Int32 result;
+            result.m_values[0] = _mm_unpacklo_epi16(v.m_value, _mm_setzero_si128());
+            result.m_values[1] = _mm_unpackhi_epi16(v.m_value, _mm_setzero_si128());
+            return result;
+        }
+
+        static Int32 SInt16ToInt32(Int16 v)
+        {
+            Int32 result;
+            result.m_values[0] = _mm_srai_epi32(_mm_unpacklo_epi16(_mm_setzero_si128(), v.m_value), 16);
+            result.m_values[1] = _mm_srai_epi32(_mm_unpackhi_epi16(_mm_setzero_si128(), v.m_value), 16);
+            return result;
+        }
+
+        static Float SInt16ToFloat(Int16 v)
+        {
+            Float result;
+            result.m_values[0] = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(_mm_setzero_si128(), v.m_value), 16));
+            result.m_values[1] = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(_mm_setzero_si128(), v.m_value), 16));
+            return result;
+        }
+
+        template<bool TSigned>
+        static Float Int16ToFloat(Int16 v)
+        {
+            if (TSigned)
+                return SInt16ToFloat(v);
+            else
+                return UInt16ToFloat(v);
+        }
+
         static Int16CompFlag FloatFlagToInt16(FloatCompFlag v)
         {
             __m128i lo = _mm_castps_si128(v.m_values[0]);
@@ -1053,7 +1482,6 @@ namespace
 
         static FloatCompFlag Int16FlagToFloat(Int16CompFlag v)
         {
-            
             __m128i lo = _mm_unpacklo_epi16(v.m_value, v.m_value);
             __m128i hi = _mm_unpackhi_epi16(v.m_value, v.m_value);
 
@@ -1063,15 +1491,50 @@ namespace
             return result;
         }
 
-        static Int16 FloatToUInt16(Float v)
+        static Int16CompFlag AndNot(Int16CompFlag a, Int16CompFlag b)
         {
-            __m128 half = _mm_set1_ps(0.5f);
-            __m128i lo = _mm_cvttps_epi32(_mm_add_ps(v.m_values[0], half));
-            __m128i hi = _mm_cvttps_epi32(_mm_add_ps(v.m_values[1], half));
+            Int16CompFlag result;
+            result.m_value = _mm_andnot_si128(b.m_value, a.m_value);
+            return result;
+        }
+
+        static Int16 RoundAndConvertToU16(Float v, const void*)
+        {
+            __m128i lo = _mm_cvttps_epi32(_mm_add_ps(v.m_values[0], _mm_set1_ps(-32768)));
+            __m128i hi = _mm_cvttps_epi32(_mm_add_ps(v.m_values[1], _mm_set1_ps(-32768)));
+
+            __m128i packed = _mm_packs_epi32(lo, hi);
+
+            Int16 result;
+            result.m_value = _mm_xor_si128(packed, _mm_set1_epi16(-32768));
+            return result;
+        }
+
+        static Int16 RoundAndConvertToS16(Float v, const void*)
+        {
+            __m128i lo = _mm_cvttps_epi32(v.m_values[0]);
+            __m128i hi = _mm_cvttps_epi32(v.m_values[1]);
+
+            __m128i packed = _mm_packs_epi32(lo, hi);
 
             Int16 result;
             result.m_value = _mm_packs_epi32(lo, hi);
             return result;
+        }
+
+        static Int16 FloatToSInt16(Float v, const void*)
+        {
+            __m128i lo = _mm_cvttps_epi32(v.m_values[0]);
+            __m128i hi = _mm_cvttps_epi32(v.m_values[1]);
+
+            Int16 result;
+            result.m_value = _mm_packs_epi32(lo, hi);
+            return result;
+        }
+
+        static Int16 FloatToUInt8(Float v, const RoundTowardNearestForScope* scope)
+        {
+            return FloatToSInt16(v, scope);
         }
 
         static Float Sqrt(Float f)
@@ -1082,7 +1545,7 @@ namespace
             return result;
         }
 
-        static Int16 SqDiff(Int16 a, Int16 b)
+        static Int16 SqDiffU8(Int16 a, Int16 b)
         {
             __m128i diff = _mm_sub_epi16(a.m_value, b.m_value);
 
@@ -1091,10 +1554,83 @@ namespace
             return result;
         }
 
+        static Float SqDiffUInt16(Int16 a, Int16 b)
+        {
+            Float af = Int16ToFloat<false>(a);
+            Float bf = Int16ToFloat<false>(b);
+            Float diff = af - bf;
+
+            return diff * diff;
+        }
+
+        static Float SqDiffSInt16(Int16 a, Int16 b)
+        {
+            Float af = Int16ToFloat<true>(a);
+            Float bf = Int16ToFloat<true>(b);
+            Float diff = af - bf;
+
+            return diff * diff;
+        }
+
         static Int16 UnsignedRightShift(Int16 v, int bits)
         {
             Int16 result;
             result.m_value = _mm_srli_epi16(v.m_value, bits);
+            return result;
+        }
+
+        static Int32 UnsignedRightShift(Int32 v, int bits)
+        {
+            Int32 result;
+            result.m_values[0] = _mm_srli_epi32(v.m_values[0], bits);
+            result.m_values[1] = _mm_srli_epi32(v.m_values[1], bits);
+            return result;
+        }
+
+        static Int16 SignedRightShift(Int16 v, int bits)
+        {
+            Int16 result;
+            result.m_value = _mm_srai_epi16(v.m_value, bits);
+            return result;
+        }
+
+        static Int32 SignedRightShift(Int32 v, int bits)
+        {
+            Int32 result;
+            result.m_values[0] = _mm_srai_epi32(v.m_values[0], bits);
+            result.m_values[1] = _mm_srai_epi32(v.m_values[1], bits);
+            return result;
+        }
+
+        static Int16 TruncateInt32To16(Int32 v)
+        {
+            __m128i low = _mm_srai_epi32(_mm_slli_epi32(v.m_values[0], 16), 16);
+            __m128i high = _mm_srai_epi32(_mm_slli_epi32(v.m_values[1], 16), 16);
+
+            Int16 result;
+            result.m_value = _mm_packs_epi32(low, high);
+            return result;
+        }
+
+        static Int32 MultiplyS16(Int16 a, Int16 b)
+        {
+            __m128i high = _mm_mulhi_epi16(a.m_value, b.m_value);
+            __m128i low = _mm_mullo_epi16(a.m_value, b.m_value);
+
+            Int32 result;
+            result.m_values[0] = _mm_unpacklo_epi16(low, high);
+            result.m_values[1] = _mm_unpackhi_epi16(low, high);
+            return result;
+        }
+
+        static Int32 MultiplyU16(Int16 a, Int16 b)
+        {
+            __m128i high = _mm_mulhi_epu16(a.m_value, b.m_value);
+            __m128i low = _mm_mullo_epi16(a.m_value, b.m_value);
+
+            Int32 result;
+            result.m_values[0] = _mm_unpacklo_epi16(low, high);
+            result.m_values[1] = _mm_unpackhi_epi16(low, high);
             return result;
         }
 
@@ -1124,12 +1660,26 @@ namespace
 
     struct ParallelMath
     {
+        struct RoundTowardZeroForScope
+        {
+        };
+
+        struct RoundTowardNearestForScope
+        {
+        };
+
+        struct RoundUpForScope
+        {
+        };
+
         static const int ParallelSize = 1;
 
         typedef float Float;
         typedef int16_t Int16;
         typedef int32_t Int32;
+        typedef int64_t Int64;
         typedef bool Int16CompFlag;
+        typedef bool Int32CompFlag;
         typedef bool FloatCompFlag;
 
         template<class T>
@@ -1172,12 +1722,42 @@ namespace
             return b;
         }
 
+        inline static uint16_t MinU8(uint16_t a, uint16_t b)
+        {
+            return Min(a, b);
+        }
+
+        inline static int16_t MinSigned(int16_t a, int16_t b)
+        {
+            return Min(a, b);
+        }
+
+        inline static int16_t MinUnsigned(uint16_t a, uint16_t b)
+        {
+            return Min(a, b);
+        }
+
         template<class T>
         inline static T Max(T a, T b)
         {
             if (a > b)
                 return a;
             return b;
+        }
+
+        inline static int16_t MaxU8(uint16_t a, uint16_t b)
+        {
+            return Max(a, b);
+        }
+
+        inline static int16_t MaxSigned(int16_t a, int16_t b)
+        {
+            return Max(a, b);
+        }
+
+        inline static int16_t MaxUnsigned(uint16_t a, uint16_t b)
+        {
+            return Max(a, b);
         }
 
         template<class T>
@@ -1189,6 +1769,11 @@ namespace
         inline static void ReadPackedInputs(const InputBlock* inputBlocks, int pxOffset, Int32& outPackedPx)
         {
             outPackedPx = inputBlocks[0].m_pixels[pxOffset];
+        }
+
+        inline static void ConvertHDRInputs(const InputBlock16* inputBlocks, int pxOffset, int channel, Int16& chOut)
+        {
+            chOut = (inputBlocks[0].m_pixels[pxOffset] >> (channel * 16)) & 0xffff;
         }
 
         inline static void UnpackChannel(Int32 inputPx, int ch, Int16& chOut)
@@ -1206,7 +1791,17 @@ namespace
             return 0.f;
         }
 
-        inline static int16_t MakeUInt16(int16_t v)
+        inline static int16_t MakeUInt16(uint16_t v)
+        {
+            return v;
+        }
+
+        inline static int16_t MakeSInt16(int16_t v)
+        {
+            return v;
+        }
+
+        inline static int32_t MakeSInt32(int32_t v)
         {
             return v;
         }
@@ -1231,6 +1826,7 @@ namespace
 
         inline static void PutFloat(float &dest, int offset, float v)
         {
+            (void)offset;
             dest = v;
         }
 
@@ -1257,6 +1853,11 @@ namespace
             return static_cast<float>(v);
         }
 
+        inline static float SInt16ToFloat(int16_t v)
+        {
+            return static_cast<float>(v);
+        }
+
         inline static Int16CompFlag FloatFlagToInt16(FloatCompFlag v)
         {
             return v;
@@ -1267,9 +1868,64 @@ namespace
             return v;
         }
 
-        inline static uint16_t FloatToUInt16(float v)
+        inline static bool AndNot(bool a, bool b)
         {
-            return static_cast<uint16_t>(floorf(v + 0.5f));
+            return a && (!b);
+        }
+
+        static int16_t RoundAndConvertToU16(float v, const RoundTowardNearestForScope*)
+        {
+            return static_cast<int16_t>(floorf(v + 0.5f));
+        }
+
+        static int16_t RoundAndConvertToU16(float v, const RoundTowardZeroForScope*)
+        {
+            return static_cast<int16_t>(v);
+        }
+
+        static int16_t RoundAndConvertToS16(float v, const RoundTowardNearestForScope*)
+        {
+            return static_cast<int16_t>(floorf(v + 0.5f));
+        }
+
+        static int16_t RoundAndConvertToS16(float v, const RoundTowardZeroForScope*)
+        {
+            return static_cast<int16_t>(v);
+        }
+
+        static int32_t UInt16ToInt32(uint16_t v)
+        {
+            return v;
+        }
+
+        static int32_t SInt16ToInt32(int16_t v)
+        {
+            return v;
+        }
+
+        template<bool TSigned>
+        static float Int16ToFloat(int16_t v)
+        {
+            if (TSigned)
+                return SInt16ToFloat(v);
+            else
+                return UInt16ToFloat(v);
+        }
+
+        inline static uint16_t FloatToSInt16(float v, const RoundTowardNearestForScope*)
+        {
+            return static_cast<int16_t>(floorf(v + 0.5f));
+        }
+
+        inline static uint16_t FloatToSInt16(float v, const RoundUpForScope*)
+        {
+            return static_cast<int16_t>(ceilf(v));
+        }
+
+        inline static uint16_t FloatToUInt8(float v, const RoundTowardNearestForScope*)
+        {
+            v = floorf(v + 0.5f);
+            return static_cast<uint16_t>(v);
         }
 
         inline static float Sqrt(float f)
@@ -1277,10 +1933,22 @@ namespace
             return sqrtf(f);
         }
 
-        inline static uint16_t SqDiff(uint16_t a, uint16_t b)
+        inline static uint16_t SqDiffU8(uint16_t a, uint16_t b)
         {
             int diff = static_cast<int>(a) - static_cast<int>(b);
             return static_cast<uint16_t>(diff * diff);
+        }
+
+        inline static float SqDiffSInt16(int16_t a, int16_t b)
+        {
+            float diff = static_cast<float>(a) - static_cast<float>(b);
+            return diff * diff;
+        }
+
+        inline static float SqDiffUInt16(uint16_t a, uint16_t b)
+        {
+            float diff = static_cast<float>(a) - static_cast<float>(b);
+            return diff * diff;
         }
 
         inline static bool AnySet(bool b)
@@ -1299,9 +1967,48 @@ namespace
             return static_cast<int16_t>(i >> bits);
         }
 
+        inline static int32_t UnsignedRightShift(int32_t v, int bits)
+        {
+            uint32_t i = static_cast<uint32_t>(v);
+            return static_cast<int32_t>(i >> bits);
+        }
+
+        inline static int16_t TruncateInt32To16(int32_t v)
+        {
+            return static_cast<int16_t>(v & 0xffff);
+        }
+
+        inline static int32_t SignedRightShift(int32_t v, int bits)
+        {
+            return (v >> bits);
+        }
+
+        inline static int32_t MultiplyS16(int16_t a, int16_t b)
+        {
+            return a * b;
+        }
+
+        inline static int32_t MultiplyU16(uint16_t a, uint16_t b)
+        {
+            return a * b;
+        }
+
         inline static float Reciprocal(float f)
         {
             return 1.0f / f;
+        }
+
+        inline static int16_t TruncateToPrecision(int16_t v, int bits, bool isSigned)
+        {
+            int lostBits = 16 - bits;
+
+            if (lostBits == 0)
+                return v;
+
+            if (isSigned)
+                return static_cast<int16_t>(static_cast<int16_t>((v << lostBits) & 0xffff) >> lostBits);
+            else
+                return static_cast<int16_t>(static_cast<uint16_t>((v << lostBits) & 0xffff) >> lostBits);
         }
     };
 
@@ -1358,6 +2065,41 @@ namespace
         outFactors[1] = static_cast<float>(maxOutsideUnits) / static_cast<float>(insideUnits) + 1.0f;
     }
 
+    ParallelMath::Float ScaleHDRValue(ParallelMath::Float v, bool isSigned)
+    {
+        if (isSigned)
+        {
+            ParallelMath::Float offset = ParallelMath::Select(ParallelMath::Less(v, ParallelMath::MakeFloatZero()), ParallelMath::MakeFloat(-30.0f), ParallelMath::MakeFloat(30.0f));
+            return (v * 32.0f + offset) / 31.0f;
+        }
+        else
+            return (v * 64.0f + 30.0f) / 31.0f;
+    }
+
+    ParallelMath::Int16 UnscaleHDRValue(ParallelMath::Int16 v, bool isSigned)
+    {
+        if (isSigned)
+        {
+            ParallelMath::Int16CompFlag negative = ParallelMath::Less(v, ParallelMath::MakeSInt16(0));
+            ParallelMath::Int16 absComp = ParallelMath::Select(negative, ParallelMath::Int16(ParallelMath::MakeSInt16(0) - v), v);
+            ParallelMath::Int32 multiplied = ParallelMath::MultiplyS16(absComp, ParallelMath::MakeUInt16(31));
+            ParallelMath::Int32 shifted = ParallelMath::SignedRightShift(multiplied, 5);
+            ParallelMath::Int16 absCompScaled = ParallelMath::TruncateInt32To16(shifted);
+            ParallelMath::Int16 signBits = ParallelMath::Select(negative, ParallelMath::MakeUInt16(0x8000), ParallelMath::MakeUInt16(0));
+
+            return absCompScaled | signBits;
+        }
+        else
+            return ParallelMath::TruncateInt32To16(ParallelMath::SignedRightShift(ParallelMath::MultiplyU16(v, ParallelMath::MakeUInt16(31)), 6));
+    }
+
+    void UnscaleHDREndpoints(ParallelMath::Int16 inEP[2][3], ParallelMath::Int16 outEP[2][3], bool isSigned)
+    {
+        for (int epi = 0; epi < 2; epi++)
+            for (int ch = 0; ch < 3; ch++)
+                outEP[epi][ch] = UnscaleHDRValue(inEP[epi][ch], isSigned);
+    }
+
     template<int TVectorSize>
     class UnfinishedEndpoints
     {
@@ -1382,8 +2124,52 @@ namespace
         {
         }
 
-        void Finish(int tweak, int range, MInt16* outEP0, MInt16* outEP1)
+        void FinishHDRUnsigned(int tweak, int range, MInt16* outEP0, MInt16* outEP1)
         {
+            ParallelMath::RoundTowardNearestForScope roundingMode;
+
+            float tweakFactors[2];
+            ComputeTweakFactors2(tweak, range, tweakFactors);
+
+            for (int ch = 0; ch < TVectorSize; ch++)
+            {
+                MInt16 channelEPs[2];
+                for (int epi = 0; epi < 2; epi++)
+                {
+                    MFloat f = ParallelMath::Clamp(m_base[ch] + m_offset[ch] * tweakFactors[epi], 0.0f, 31743.0f);
+                    channelEPs[epi] = ParallelMath::RoundAndConvertToU16(f, &roundingMode);
+                }
+
+                outEP0[ch] = channelEPs[0];
+                outEP1[ch] = channelEPs[1];
+            }
+        }
+
+        void FinishHDRSigned(int tweak, int range, MInt16* outEP0, MInt16* outEP1)
+        {
+            ParallelMath::RoundTowardNearestForScope roundingMode;
+
+            float tweakFactors[2];
+            ComputeTweakFactors2(tweak, range, tweakFactors);
+
+            for (int ch = 0; ch < TVectorSize; ch++)
+            {
+                MInt16 channelEPs[2];
+                for (int epi = 0; epi < 2; epi++)
+                {
+                    MFloat f = ParallelMath::Clamp(m_base[ch] + m_offset[ch] * tweakFactors[epi], -31743.0f, 31743.0f);
+                    channelEPs[epi] = ParallelMath::RoundAndConvertToS16(f, &roundingMode);
+                }
+
+                outEP0[ch] = channelEPs[0];
+                outEP1[ch] = channelEPs[1];
+            }
+        }
+
+        void FinishLDR(int tweak, int range, MInt16* outEP0, MInt16* outEP1)
+        {
+            ParallelMath::RoundTowardNearestForScope roundingMode;
+
             float tweakFactors[2];
             ComputeTweakFactors2(tweak, range, tweakFactors);
 
@@ -1391,8 +2177,8 @@ namespace
             {
                 MFloat ep0f = ParallelMath::Clamp(m_base[ch] + m_offset[ch] * tweakFactors[0], 0.0f, 255.0f);
                 MFloat ep1f = ParallelMath::Clamp(m_base[ch] + m_offset[ch] * tweakFactors[1], 0.0f, 255.0f);
-                outEP0[ch] = ParallelMath::FloatToUInt16(ep0f);
-                outEP1[ch] = ParallelMath::FloatToUInt16(ep1f);
+                outEP0[ch] = ParallelMath::FloatToUInt8(ep0f, &roundingMode);
+                outEP1[ch] = ParallelMath::FloatToUInt8(ep1f, &roundingMode);
             }
         }
 
@@ -1645,9 +2431,14 @@ namespace
     public:
         typedef ParallelMath::Float MFloat;
         typedef ParallelMath::Int16 MInt16;
+        typedef ParallelMath::Int32 MInt32;
 
-        void Init(const float channelWeights[TVectorSize], MInt16 endPoint[2][TVectorSize], int range)
+        template<bool TSigned>
+        void Init(const float channelWeights[TVectorSize], MInt16 interpolationEndPoints[2][TVectorSize], MInt16 colorSpaceEndpoints[2][TVectorSize], int range)
         {
+            // In BC6H, the interpolation endpoints are higher-precision than the endpoints in color space.
+            // We need to select indexes using the color-space endpoints.
+
             m_isUniform = true;
             for (int ch = 1; ch < TVectorSize; ch++)
             {
@@ -1670,7 +2461,7 @@ namespace
 
             for (int ep = 0; ep < 2; ep++)
                 for (int ch = 0; ch < TVectorSize; ch++)
-                    m_endPoint[ep][ch] = endPoint[ep][ch];
+                    m_endPoint[ep][ch] = interpolationEndPoints[ep][ch];
 
             m_range = range;
             m_maxValue = static_cast<float>(range - 1);
@@ -1678,9 +2469,9 @@ namespace
             MFloat epDiffWeighted[TVectorSize];
             for (int ch = 0; ch < TVectorSize; ch++)
             {
-                m_origin[ch] = ParallelMath::UInt16ToFloat(endPoint[0][ch]);
-
-                epDiffWeighted[ch] = (ParallelMath::UInt16ToFloat(endPoint[1][ch]) - m_origin[ch]) * channelWeights[ch];
+                m_origin[ch] = ParallelMath::Int16ToFloat<TSigned>(colorSpaceEndpoints[0][ch]);
+                m_opposingOrigin[ch] = ParallelMath::Int16ToFloat<TSigned>(colorSpaceEndpoints[1][ch]);
+                epDiffWeighted[ch] = (ParallelMath::Int16ToFloat<TSigned>(colorSpaceEndpoints[1][ch]) - m_origin[ch]) * channelWeights[ch];
             }
 
             MFloat lenSquared = epDiffWeighted[0] * epDiffWeighted[0];
@@ -1695,6 +2486,12 @@ namespace
                 m_axis[ch] = epDiffWeighted[ch] * channelWeights[ch] * maxValueDividedByLengthSquared;
         }
 
+        template<bool TSigned>
+        void Init(const float channelWeights[TVectorSize], MInt16 endPoints[2][TVectorSize], int range)
+        {
+            Init<TSigned>(channelWeights, endPoints, endPoints, range);
+        }
+
         void Reconstruct(MInt16 index, MInt16* pixel)
         {
             MInt16 weight = ParallelMath::UnsignedRightShift(index * g_weightReciprocals[m_range] + 256, 9);
@@ -1703,18 +2500,78 @@ namespace
                 pixel[ch] = ParallelMath::UnsignedRightShift(((ParallelMath::MakeUInt16(64) - weight) * m_endPoint[0][ch] + weight * m_endPoint[1][ch] + ParallelMath::MakeUInt16(32)), 6);
         }
 
-        MInt16 SelectIndex(const MFloat* pixel)
+        void ReconstructHDR(MInt16 index, MInt16* pixel, bool isSigned) const
+        {
+            MInt16 weight = ParallelMath::UnsignedRightShift(index * g_weightReciprocals[m_range] + 256, 9);
+
+            for (int ch = 0; ch < TVectorSize; ch++)
+            {
+                MInt32 ep0, ep1;
+                if (isSigned)
+                {
+                    ep0 = ParallelMath::UInt16ToInt32(m_endPoint[0][ch]);
+                    ep1 = ParallelMath::UInt16ToInt32(m_endPoint[1][ch]);
+                }
+                else
+                {
+                    ep0 = ParallelMath::SInt16ToInt32(m_endPoint[0][ch]);
+                    ep1 = ParallelMath::SInt16ToInt32(m_endPoint[1][ch]);
+                }
+
+                MInt32 pixel32;
+                if (isSigned)
+                    pixel32 = ParallelMath::MultiplyS16((ParallelMath::MakeUInt16(64) - weight), m_endPoint[0][ch]) + ParallelMath::MultiplyS16(weight, m_endPoint[1][ch]);
+                else
+                    pixel32 = ParallelMath::MultiplyU16((ParallelMath::MakeUInt16(64) - weight), m_endPoint[0][ch]) + ParallelMath::MultiplyU16(weight, m_endPoint[1][ch]);
+
+                pixel32 = ParallelMath::SignedRightShift(pixel32 + ParallelMath::MakeSInt32(32), 6);
+
+                MInt16 pixel16 = ParallelMath::TruncateInt32To16(pixel32);
+
+                pixel[ch] = UnscaleHDRValue(pixel16, isSigned);
+            }
+        }
+
+        MInt16 SelectIndex(const MFloat* pixel, ParallelMath::RoundTowardNearestForScope* rtn) const
         {
             MFloat dist = (pixel[0] - m_origin[0]) * m_axis[0];
             for (int ch = 1; ch < TVectorSize; ch++)
                 dist = dist + (pixel[ch] - m_origin[ch]) * m_axis[ch];
 
-            return ParallelMath::FloatToUInt16(ParallelMath::Clamp(dist, 0.0f, m_maxValue));
+            return ParallelMath::FloatToUInt8(ParallelMath::Clamp(dist, 0.0f, m_maxValue), rtn);
+        }
+
+        MInt16 SelectIndex(const MFloat* pixel) const
+        {
+            ParallelMath::RoundTowardNearestForScope rtn;
+            return SelectIndex(pixel, &rtn);
+        }
+
+        void Invert(ParallelMath::Int16CompFlag invert)
+        {
+            ParallelMath::FloatCompFlag invertFloat = ParallelMath::Int16FlagToFloat(invert);
+
+            for (int ch = 0; ch < TVectorSize; ch++)
+            {
+                MInt16 firstEP = m_endPoint[0][ch];
+                MInt16 secondEP = m_endPoint[1][ch];
+
+                m_endPoint[0][ch] = ParallelMath::Select(invert, secondEP, firstEP);
+                m_endPoint[1][ch] = ParallelMath::Select(invert, firstEP, secondEP);
+
+                MFloat origin = m_origin[ch];
+                MFloat opposingOrigin = m_opposingOrigin[ch];
+
+                ParallelMath::ConditionalSet(m_origin[ch], invertFloat, opposingOrigin);
+                ParallelMath::ConditionalSet(m_opposingOrigin[ch], invertFloat, origin);
+                ParallelMath::ConditionalSet(m_axis[ch], invertFloat, -m_axis[ch]);
+            }
         }
 
     private:
         MInt16 m_endPoint[2][TVectorSize];
         MFloat m_origin[TVectorSize];
+        MFloat m_opposingOrigin[TVectorSize];
         MFloat m_axis[TVectorSize];
         int m_range;
         float m_maxValue;
@@ -1797,7 +2654,7 @@ namespace
             m_w = m_w + ParallelMath::MakeFloat(1.0f);
         }
 
-        void GetRefinedEndpoints(MInt16 endPoint[2][TVectorSize])
+        void GetRefinedEndpoints(MFloat endPoint[2][TVectorSize])
         {
             // a = (tv - t*v/w)/(tt - t*t/w)
             // b = (v - a*t)/w
@@ -1837,8 +2694,40 @@ namespace
                 // Unweight
                 float inverseWeight = m_rcpChannelWeights[ch];
 
-                endPoint[0][ch] = ParallelMath::FloatToUInt16(ParallelMath::Clamp(p1 * inverseWeight, 0.f, 255.0f));
-                endPoint[1][ch] = ParallelMath::FloatToUInt16(ParallelMath::Clamp(p2 * inverseWeight, 0.f, 255.0f));
+                endPoint[0][ch] = p1 * inverseWeight;
+                endPoint[1][ch] = p2 * inverseWeight;
+            }
+        }
+
+        void GetRefinedEndpointsLDR(MInt16 endPoint[2][TVectorSize])
+        {
+            ParallelMath::RoundTowardNearestForScope roundingMode;
+
+            MFloat floatEndPoint[2][TVectorSize];
+            GetRefinedEndpoints(floatEndPoint);
+
+            for (int epi = 0; epi < 2; epi++)
+                for (int ch = 0; ch < TVectorSize; ch++)
+                    endPoint[epi][ch] = ParallelMath::FloatToUInt8(ParallelMath::Clamp(floatEndPoint[epi][ch], 0.0f, 255.0f), &roundingMode);
+        }
+
+        void GetRefinedEndpointsHDR(MInt16 endPoint[2][TVectorSize], bool isSigned)
+        {
+            ParallelMath::RoundTowardZeroForScope rtz;
+
+            MFloat floatEndPoint[2][TVectorSize];
+            GetRefinedEndpoints(floatEndPoint);
+
+            for (int epi = 0; epi < 2; epi++)
+            {
+                for (int ch = 0; ch < TVectorSize; ch++)
+                {
+                    MFloat f = floatEndPoint[epi][ch];
+                    if (isSigned)
+                        endPoint[epi][ch] = ParallelMath::RoundAndConvertToS16(ParallelMath::Clamp(f, -31743.0f, 31743.0f), &rtz);
+                    else
+                        endPoint[epi][ch] = ParallelMath::RoundAndConvertToU16(ParallelMath::Clamp(f, 0.0f, 31743.0f), &rtz);
+                }
             }
         }
     };
@@ -1858,18 +2747,46 @@ namespace
         }
 
         template<int TVectorSize>
-        static MFloat ComputeError(DWORD flags, const MInt16 reconstructed[TVectorSize], const MInt16 original[TVectorSize], const float channelWeights[TVectorSize])
+        static MFloat ComputeErrorLDR(DWORD flags, const MInt16 reconstructed[TVectorSize], const MInt16 original[TVectorSize], const float channelWeights[TVectorSize])
         {
             MFloat error = ParallelMath::MakeFloatZero();
             if (flags & BC_FLAGS_UNIFORM)
             {
                 for (int ch = 0; ch < TVectorSize; ch++)
-                    error = error + ParallelMath::UInt16ToFloat(ParallelMath::SqDiff(reconstructed[ch], original[ch]));
+                    error = error + ParallelMath::UInt16ToFloat(ParallelMath::SqDiffU8(reconstructed[ch], original[ch]));
             }
             else
             {
                 for (int ch = 0; ch < TVectorSize; ch++)
-                    error = error + ParallelMath::UInt16ToFloat(ParallelMath::SqDiff(reconstructed[ch], original[ch])) * ParallelMath::MakeFloat(channelWeights[ch]);
+                    error = error + ParallelMath::UInt16ToFloat(ParallelMath::SqDiffU8(reconstructed[ch], original[ch])) * ParallelMath::MakeFloat(channelWeights[ch]);
+            }
+
+            return error;
+        }
+
+        template<int TVectorSize, bool TSigned>
+        static MFloat ComputeErrorHDR(DWORD flags, const MInt16 reconstructed[TVectorSize], const MInt16 original[TVectorSize], const float channelWeights[TVectorSize])
+        {
+            MFloat error = ParallelMath::MakeFloatZero();
+            if (flags & BC_FLAGS_UNIFORM)
+            {
+                for (int ch = 0; ch < TVectorSize; ch++)
+                {
+                    if (TSigned)
+                        error = error + ParallelMath::SqDiffSInt16(reconstructed[ch], original[ch]);
+                    else
+                        error = error + ParallelMath::SqDiffUInt16(reconstructed[ch], original[ch]);
+                }
+            }
+            else
+            {
+                for (int ch = 0; ch < TVectorSize; ch++)
+                {
+                    if (TSigned)
+                        error = error + ParallelMath::SqDiffSInt16(reconstructed[ch], original[ch]) * ParallelMath::MakeFloat(channelWeights[ch]);
+                    else
+                        error = error + ParallelMath::SqDiffUInt16(reconstructed[ch], original[ch]) * ParallelMath::MakeFloat(channelWeights[ch]);
+                }
             }
 
             return error;
@@ -1917,26 +2834,32 @@ namespace
 
         static void TweakAlpha(const MInt16 original[2], int tweak, int range, MInt16 result[2])
         {
+            ParallelMath::RoundTowardNearestForScope roundingMode;
+
             float tf[2];
             ComputeTweakFactors2(tweak, range, tf);
 
             MFloat base = ParallelMath::UInt16ToFloat(original[0]);
             MFloat offs = ParallelMath::UInt16ToFloat(original[1]) - base;
 
-            result[0] = ParallelMath::FloatToUInt16(ParallelMath::Clamp(base + offs * tf[0], 0.0f, 255.0f));
-            result[1] = ParallelMath::FloatToUInt16(ParallelMath::Clamp(base + offs * tf[1], 0.0f, 255.0f));
+            result[0] = ParallelMath::FloatToUInt8(ParallelMath::Clamp(base + offs * tf[0], 0.0f, 255.0f), &roundingMode);
+            result[1] = ParallelMath::FloatToUInt8(ParallelMath::Clamp(base + offs * tf[1], 0.0f, 255.0f), &roundingMode);
         }
 
         static void Quantize(MInt16* color, int bits, int channels)
         {
+            ParallelMath::RoundTowardNearestForScope roundingMode;
+
             float maxColor = static_cast<float>((1 << bits) - 1);
 
             for (int i = 0; i < channels; i++)
-                color[i] = ParallelMath::FloatToUInt16(ParallelMath::Clamp(ParallelMath::UInt16ToFloat(color[i]) * ParallelMath::MakeFloat(1.0f / 255.0f) * maxColor, 0.f, 255.f));
+                color[i] = ParallelMath::FloatToUInt8(ParallelMath::Clamp(ParallelMath::UInt16ToFloat(color[i]) * ParallelMath::MakeFloat(1.0f / 255.0f) * maxColor, 0.f, 255.f), &roundingMode);
         }
 
         static void QuantizeP(MInt16* color, int bits, uint16_t p, int channels)
         {
+            ParallelMath::RoundTowardNearestForScope roundingMode;
+
             uint16_t pShift = static_cast<uint16_t>(1 << (7 - bits));
             MInt16 pShiftV = ParallelMath::MakeUInt16(pShift);
 
@@ -1948,11 +2871,11 @@ namespace
             {
                 MInt16 clr = color[ch];
                 if (p)
-                    clr = ParallelMath::Max(clr, pShiftV) - pShiftV;
+                    clr = ParallelMath::MaxU8(clr, pShiftV) - pShiftV;
 
                 MFloat rerangedColor = ParallelMath::UInt16ToFloat(clr) * maxQuantized / maxColorF;
 
-                clr = ParallelMath::FloatToUInt16(ParallelMath::Clamp(rerangedColor, 0.0f, maxQuantized)) << 1;
+                clr = ParallelMath::FloatToUInt8(ParallelMath::Clamp(rerangedColor, 0.0f, maxQuantized), &roundingMode) << 1;
                 if (p)
                     clr = clr | ParallelMath::MakeUInt16(1);
 
@@ -2066,8 +2989,8 @@ namespace
             MInt16 minAlpha = ParallelMath::MakeUInt16(255);
             for (int px = 0; px < 16; px++)
             {
-                maxAlpha = ParallelMath::Max(maxAlpha, pixels[px][3]);
-                minAlpha = ParallelMath::Min(minAlpha, pixels[px][3]);
+                maxAlpha = ParallelMath::MaxU8(maxAlpha, pixels[px][3]);
+                minAlpha = ParallelMath::MinU8(minAlpha, pixels[px][3]);
             }
 
             bool anyBlockHasAlpha = ParallelMath::AnySet(ParallelMath::Less(maxAlpha, ParallelMath::MakeUInt16(255)));
@@ -2245,12 +3168,12 @@ namespace
 
                         if (isRGB)
                         {
-                            temps.unfinishedRGB[rgbInitialEPCollapseList[shape]].Finish(tweak, 1 << indexPrec, baseEP[0], baseEP[1]);
+                            temps.unfinishedRGB[rgbInitialEPCollapseList[shape]].FinishLDR(tweak, 1 << indexPrec, baseEP[0], baseEP[1]);
                             baseEP[0][3] = baseEP[1][3] = ParallelMath::MakeUInt16(255);
                         }
                         else
                         {
-                            temps.unfinishedRGBA[rgbaInitialEPCollapseList[shape]].Finish(tweak, 1 << indexPrec, baseEP[0], baseEP[1]);
+                            temps.unfinishedRGBA[rgbaInitialEPCollapseList[shape]].FinishLDR(tweak, 1 << indexPrec, baseEP[0], baseEP[1]);
                         }
 
                         for (int pIter = 0; pIter < parityBitMax; pIter++)
@@ -2295,7 +3218,7 @@ namespace
                                 MFloat shapeError = ParallelMath::MakeFloatZero();
 
                                 IndexSelector<4> indexSelector;
-                                indexSelector.Init(channelWeights, ep, 1 << indexPrec);
+                                indexSelector.Init<false>(channelWeights, ep, 1 << indexPrec);
 
                                 EndpointRefiner<4> epRefiner;
                                 epRefiner.Init(1 << indexPrec, channelWeights);
@@ -2315,7 +3238,7 @@ namespace
 
                                     indexSelector.Reconstruct(index, reconstructed);
 
-                                    shapeError = shapeError + BCCommon::ComputeError<4>(flags, reconstructed, pixels[px], channelWeights);
+                                    shapeError = shapeError + BCCommon::ComputeErrorLDR<4>(flags, reconstructed, pixels[px], channelWeights);
 
                                     indexes[pxi] = index;
                                 }
@@ -2338,7 +3261,7 @@ namespace
                                 }
 
                                 if (refine != NumRefineRounds - 1)
-                                    epRefiner.GetRefinedEndpoints(ep);
+                                    epRefiner.GetRefinedEndpointsLDR(ep);
                             } // refine
                         } // p
                     } // tweak
@@ -2453,8 +3376,8 @@ namespace
                         alphaRange[0] = alphaRange[1] = pixels[0][alphaChannel];
                         for (int px = 1; px < 16; px++)
                         {
-                            alphaRange[0] = ParallelMath::Min(pixels[px][alphaChannel], alphaRange[0]);
-                            alphaRange[1] = ParallelMath::Max(pixels[px][alphaChannel], alphaRange[1]);
+                            alphaRange[0] = ParallelMath::MinU8(pixels[px][alphaChannel], alphaRange[0]);
+                            alphaRange[1] = ParallelMath::MaxU8(pixels[px][alphaChannel], alphaRange[1]);
                         }
 
                         int rgbPrec = 0;
@@ -2485,7 +3408,7 @@ namespace
                             MInt16 rgbEP[2][3];
                             MInt16 alphaEP[2];
 
-                            unfinishedRGB.Finish(tweak, 1 << rgbPrec, rgbEP[0], rgbEP[1]);
+                            unfinishedRGB.FinishLDR(tweak, 1 << rgbPrec, rgbEP[0], rgbEP[1]);
 
                             TweakAlpha(alphaRange, tweak, 1 << alphaPrec, alphaEP);
 
@@ -2502,9 +3425,9 @@ namespace
 
                                 {
                                     MInt16 alphaEPTemp[2][1] = { { alphaEP[0] },{ alphaEP[1] } };
-                                    alphaIndexSelector.Init(uniformWeight, alphaEPTemp, 1 << alphaPrec);
+                                    alphaIndexSelector.Init<false>(uniformWeight, alphaEPTemp, 1 << alphaPrec);
                                 }
-                                rgbIndexSelector.Init(rotatedRGBWeights, rgbEP, 1 << rgbPrec);
+                                rgbIndexSelector.Init<false>(rotatedRGBWeights, rgbEP, 1 << rgbPrec);
 
                                 EndpointRefiner<3> rgbRefiner;
                                 EndpointRefiner<1> alphaRefiner;
@@ -2535,9 +3458,9 @@ namespace
                                     rgbIndexSelector.Reconstruct(rgbIndex, reconstructedRGB);
                                     alphaIndexSelector.Reconstruct(alphaIndex, reconstructedAlpha);
 
-                                    errorRGB = errorRGB + BCCommon::ComputeError<3>(flags, reconstructedRGB, rotatedRGB[px], rotatedRGBWeights);
+                                    errorRGB = errorRGB + BCCommon::ComputeErrorLDR<3>(flags, reconstructedRGB, rotatedRGB[px], rotatedRGBWeights);
 
-                                    errorA = errorA + BCCommon::ComputeError<1>(flags, reconstructedAlpha, pixels[px] + alphaChannel, rotatedAlphaWeight);
+                                    errorA = errorA + BCCommon::ComputeErrorLDR<1>(flags, reconstructedAlpha, pixels[px] + alphaChannel, rotatedAlphaWeight);
 
                                     rgbIndexes[px] = rgbIndex;
                                     alphaIndexes[px] = alphaIndex;
@@ -2567,10 +3490,10 @@ namespace
 
                                 if (refine != NumRefineRounds - 1)
                                 {
-                                    rgbRefiner.GetRefinedEndpoints(rgbEP);
+                                    rgbRefiner.GetRefinedEndpointsLDR(rgbEP);
 
                                     MInt16 alphaEPTemp[2][1];
-                                    alphaRefiner.GetRefinedEndpoints(alphaEPTemp);
+                                    alphaRefiner.GetRefinedEndpointsLDR(alphaEPTemp);
 
                                     for (int i = 0; i < 2; i++)
                                         alphaEP[i] = alphaEPTemp[i][0];
@@ -2843,6 +3766,515 @@ namespace
         }
     };
 
+    class BC6HComputer
+    {
+    public:
+        typedef ParallelMath::Float MFloat;
+        typedef ParallelMath::Int16 MInt16;
+        typedef ParallelMath::Int32 MInt32;
+        typedef ParallelMath::Int64 MInt64;
+
+        static const int NumTweakRounds = 4;
+        static const int NumRefineRounds = 2;
+
+        static MInt16 QuantizeSingleEndpointElement(const MInt16 elem, int precision, bool isSigned, const ParallelMath::RoundUpForScope* ru)
+        {
+            if (isSigned)
+            {
+                // Expand to full range
+                ParallelMath::Int16CompFlag isNegative = ParallelMath::Less(elem, ParallelMath::MakeUInt16(0));
+                MInt16 absElem = ParallelMath::Select(isNegative, MInt16(ParallelMath::MakeSInt16(0) - elem), elem);
+
+                MInt16 expandedAbsElem = ParallelMath::FloatToSInt16(ParallelMath::Min(ParallelMath::SInt16ToFloat(absElem) * 32.0f / 31.0f, ParallelMath::MakeFloat(32767.0f)), ru);
+
+                ParallelMath::Int16 signBits = ParallelMath::Select(isNegative, ParallelMath::MakeSInt16(static_cast<uint16_t>(1 << (precision - 1))), ParallelMath::MakeSInt16(0));
+                return (signBits | ParallelMath::UnsignedRightShift(expandedAbsElem, 16 - precision));
+            }
+            else
+            {
+                // Expand to full range
+                MInt16 expandedElem = ParallelMath::FloatToSInt16(ParallelMath::Min(ParallelMath::SInt16ToFloat(elem) * 64.0f / 31.0f, ParallelMath::MakeFloat(65535.0f)), ru);
+                return ParallelMath::UnsignedRightShift(expandedElem, 16 - precision);
+            }
+        }
+
+        static void UnquantizeSingleEndpointElement(MInt16 comp, int precision, bool isSigned, MInt16 &outUnquantized, MInt16 &outUnquantizedFinished)
+        {
+            if (isSigned)
+            {
+                MInt16 zero = ParallelMath::MakeUInt16(0);
+                MInt16 maxComp = ParallelMath::MakeSInt16(static_cast<int16_t>((1 << (precision - 1)) - 1));
+
+                ParallelMath::Int16CompFlag s = ParallelMath::Less(comp, zero);
+                ParallelMath::ConditionalSet(comp, s, MInt16(zero - comp));
+
+                if (precision < 16)
+                {
+                    ParallelMath::Int16CompFlag isZero = ParallelMath::Equal(comp, zero);
+                    ParallelMath::Int16CompFlag isMax = ParallelMath::LessOrEqual(maxComp, comp);
+
+                    MInt16 unq = ParallelMath::TruncateInt32To16(ParallelMath::SignedRightShift((ParallelMath::SInt16ToInt32(comp) << 15) + ParallelMath::MakeSInt32(0x4000), precision - 1));
+                    ParallelMath::ConditionalSet(unq, isZero, zero);
+                    ParallelMath::ConditionalSet(unq, isMax, ParallelMath::MakeUInt16(0x7fff));
+
+                    comp = unq;
+                }
+
+                outUnquantized = ParallelMath::Select(s, MInt16(zero - comp), comp);
+
+                comp = ParallelMath::TruncateInt32To16(ParallelMath::SignedRightShift(ParallelMath::MultiplyS16(comp, ParallelMath::MakeSInt16(31)), 5));
+
+                outUnquantizedFinished = ParallelMath::Select(s, MInt16(comp | ParallelMath::MakeUInt16(0x8000)), comp);
+            }
+            else
+            {
+                if (precision < 15)
+                {
+                    MInt16 zero = ParallelMath::MakeUInt16(0);
+                    MInt16 maxComp = ParallelMath::MakeSInt16(static_cast<int16_t>((1 << precision) - 1));
+
+                    ParallelMath::Int16CompFlag isZero = ParallelMath::Equal(comp, zero);
+                    ParallelMath::Int16CompFlag isMax = ParallelMath::LessOrEqual(maxComp, comp);
+
+                    MInt16 unq = ParallelMath::TruncateInt32To16(ParallelMath::UnsignedRightShift((ParallelMath::SInt16ToInt32(comp) << 16) + ParallelMath::MakeSInt32(0x8000), precision));
+
+                    ParallelMath::ConditionalSet(unq, isZero, zero);
+                    ParallelMath::ConditionalSet(unq, isMax, ParallelMath::MakeUInt16(0xffff));
+
+                    comp = unq;
+                }
+
+                outUnquantized = comp;
+                outUnquantizedFinished = ParallelMath::TruncateInt32To16(ParallelMath::UnsignedRightShift(ParallelMath::MultiplyU16(comp, ParallelMath::MakeUInt16(31)), 6));
+            }
+        }
+
+        static void QuantizeEndpoints(const MInt16 endPoints[2][3], const MFloat floatPixels[16][3], MInt16 quantizedEndPoints[2][3], MInt16 indexes[16], IndexSelector<3> &indexSelector, int partitionMask, int subset, int fixupIndex, int precision, bool isSigned, int indexRange, const float *channelWeights)
+        {
+            ParallelMath::RoundUpForScope ru;
+
+            MInt16 unquantizedEP[2][3];
+            MInt16 finishedUnquantizedEP[2][3];
+
+            for (int epi = 0; epi < 2; epi++)
+            {
+                for (int ch = 0; ch < 3; ch++)
+                {
+                    MInt16 qee = QuantizeSingleEndpointElement(endPoints[epi][ch], precision, isSigned, &ru);
+                    UnquantizeSingleEndpointElement(qee, precision, isSigned, unquantizedEP[epi][ch], finishedUnquantizedEP[epi][ch]);
+                    quantizedEndPoints[epi][ch] = qee;
+                }
+            }
+
+            if (isSigned)
+                indexSelector.Init<true>(channelWeights, unquantizedEP, finishedUnquantizedEP, indexRange);
+            else
+                indexSelector.Init<false>(channelWeights, unquantizedEP, finishedUnquantizedEP, indexRange);
+
+            MInt16 halfRange = ParallelMath::MakeUInt16(static_cast<uint16_t>(indexRange / 2));
+
+            MInt16 index = indexSelector.SelectIndex(floatPixels[fixupIndex]);
+
+            ParallelMath::Int16CompFlag invert = ParallelMath::LessOrEqual(halfRange, index);
+
+            if (ParallelMath::AnySet(invert))
+            {
+                ParallelMath::ConditionalSet(index, invert, MInt16(ParallelMath::MakeUInt16(static_cast<uint16_t>(indexRange - 1)) - index));
+
+                indexSelector.Invert(invert);
+
+                for (int ch = 0; ch < 3; ch++)
+                {
+                    MInt16 firstEP = quantizedEndPoints[0][ch];
+                    MInt16 secondEP = quantizedEndPoints[1][ch];
+
+                    quantizedEndPoints[0][ch] = ParallelMath::Select(invert, secondEP, firstEP);
+                    quantizedEndPoints[1][ch] = ParallelMath::Select(invert, firstEP, secondEP);
+                }
+            }
+
+            indexes[fixupIndex] = index;
+        }
+
+        static void EvaluatePartitionedLegality(const MInt16 ep0[2][3], const MInt16 ep1[2][3], int aPrec, const int bPrec[3], bool isTransformed, MInt16 outEncodedEPs[2][2][3], ParallelMath::Int16CompFlag& outIsLegal)
+        {
+            ParallelMath::Int16CompFlag allLegal = ParallelMath::Equal(ParallelMath::MakeUInt16(0), ParallelMath::MakeUInt16(0));
+
+            for (int ch = 0; ch < 3; ch++)
+            {
+                outEncodedEPs[0][0][ch] = ep0[0][ch];
+                outEncodedEPs[0][1][ch] = ep0[1][ch];
+                outEncodedEPs[1][0][ch] = ep1[0][ch];
+                outEncodedEPs[1][1][ch] = ep1[1][ch];
+
+                if (isTransformed)
+                {
+                    for (int subset = 0; subset < 2; subset++)
+                    {
+                        for (int epi = 0; epi < 2; epi++)
+                        {
+                            if (epi == 0 && subset == 0)
+                                continue;
+
+                            MInt16 original = outEncodedEPs[subset][epi][ch];
+                            outEncodedEPs[subset][epi][ch] = ParallelMath::TruncateToPrecision(outEncodedEPs[subset][epi][ch] - outEncodedEPs[0][0][ch], bPrec[ch], true);
+
+                            MInt16 reconstructed = outEncodedEPs[subset][epi][ch] + outEncodedEPs[0][0][ch];
+                            allLegal = allLegal & ParallelMath::Equal(reconstructed, original);
+                        }
+                    }
+                }
+
+                if (!ParallelMath::AnySet(allLegal))
+                    break;
+            }
+
+            outIsLegal = allLegal;
+        }
+
+        static void EvaluateSingleLegality(const MInt16 ep[2][3], int aPrec, const int bPrec[3], bool isTransformed, MInt16 outEncodedEPs[2][3], ParallelMath::Int16CompFlag& outIsLegal)
+        {
+            ParallelMath::Int16CompFlag allLegal = ParallelMath::Equal(ParallelMath::MakeUInt16(0), ParallelMath::MakeUInt16(0));
+
+            for (int ch = 0; ch < 3; ch++)
+            {
+                outEncodedEPs[0][ch] = ep[0][ch];
+                outEncodedEPs[1][ch] = ep[1][ch];
+
+                if (isTransformed)
+                {
+                    MInt16 original = outEncodedEPs[1][ch];
+                    outEncodedEPs[1][ch] = ParallelMath::TruncateToPrecision(outEncodedEPs[1][ch] - outEncodedEPs[0][ch], bPrec[ch], true);
+
+                    MInt16 reconstructed = outEncodedEPs[1][ch] + outEncodedEPs[0][ch];
+                    allLegal = allLegal & ParallelMath::Equal(reconstructed, original);
+                }
+            }
+
+            outIsLegal = allLegal;
+        }
+
+        static void Pack(DWORD flags, const InputBlock16* inputs, uint8_t* packedBlocks, const float channelWeights[4], bool isSigned)
+        {
+            ParallelMath::RoundTowardZeroForScope rtz;
+
+            MInt16 pixels[16][3];
+            MFloat floatPixels[16][3];
+
+            for (int px = 0; px < 16; px++)
+            {
+                for (int ch = 0; ch < 3; ch++)
+                {
+                    ParallelMath::ConvertHDRInputs(inputs, px, ch, pixels[px][ch]);
+
+                    if (isSigned)
+                        floatPixels[px][ch] = ParallelMath::SInt16ToFloat(pixels[px][ch]);
+                    else
+                        floatPixels[px][ch] = ParallelMath::UInt16ToFloat(pixels[px][ch]);
+                }
+            }
+
+            MFloat preWeightedPixels[16][3];
+
+            BCCommon::PreWeightPixels<3>(preWeightedPixels, pixels, channelWeights);
+
+            MInt16 bestEndPoints[2][2][3];
+            MInt16 bestIndexes[16];
+            MFloat bestError = ParallelMath::MakeFloat(FLT_MAX);
+            MInt16 bestMode = ParallelMath::MakeUInt16(0);
+            MInt16 bestPartition = ParallelMath::MakeUInt16(0);
+
+            for (int px = 0; px < 16; px++)
+                bestIndexes[px] = ParallelMath::MakeUInt16(0);
+
+            for (int subset = 0; subset < 2; subset++)
+                for (int epi = 0; epi < 2; epi++)
+                    for (int ch = 0; ch < 3; ch++)
+                        bestEndPoints[subset][epi][ch] = ParallelMath::MakeUInt16(0);
+
+            UnfinishedEndpoints<3> partitionedUFEP[32][2];
+            UnfinishedEndpoints<3> singleUFEP;
+
+            // Generate UFEP for partitions
+            for (int p = 0; p < 32; p++)
+            {
+                int partitionMask = BC7Data::g_partitionMap[p];
+
+                EndpointSelector<3, 8> epSelectors[2];
+
+                for (int pass = 0; pass < NumEndpointSelectorPasses; pass++)
+                {
+                    for (int px = 0; px < 16; px++)
+                    {
+                        int subset = (partitionMask >> px) & 1;
+                        epSelectors[subset].ContributePass(preWeightedPixels[px], pass, ParallelMath::MakeFloat(1.0f));
+                    }
+
+                    for (int subset = 0; subset < 2; subset++)
+                        epSelectors[subset].FinishPass(pass);
+                }
+
+                for (int subset = 0; subset < 2; subset++)
+                    partitionedUFEP[p][subset] = epSelectors[subset].GetEndpoints(channelWeights);
+            }
+
+            // Generate UFEP for single
+            {
+                EndpointSelector<3, 8> epSelector;
+
+                for (int pass = 0; pass < NumEndpointSelectorPasses; pass++)
+                {
+                    for (int px = 0; px < 16; px++)
+                        epSelector.ContributePass(preWeightedPixels[px], pass, ParallelMath::MakeFloat(1.0f));
+
+                    epSelector.FinishPass(pass);
+                }
+
+                singleUFEP = epSelector.GetEndpoints(channelWeights);
+            }
+
+            for (int partitionedInt = 0; partitionedInt < 2; partitionedInt++)
+            {
+                bool partitioned = (partitionedInt == 1);
+
+                for (int aPrec = BC7Data::g_maxHDRPrecision; aPrec >= 0; aPrec--)
+                {
+                    if (!BC7Data::g_hdrModesExistForPrecision[partitionedInt][aPrec])
+                        continue;
+
+                    int numPartitions = partitioned ? 32 : 1;
+                    int numSubsets = partitioned ? 2 : 1;
+                    int indexBits = partitioned ? 3 : 4;
+                    int indexRange = (1 << indexBits);
+
+                    for (int p = 0; p < numPartitions; p++)
+                    {
+                        int partitionMask = partitioned ? BC7Data::g_partitionMap[p] : 0;
+
+                        const int NumMetaRounds = NumTweakRounds * NumRefineRounds;
+
+                        MInt16 metaEndPointsQuantized[NumMetaRounds][2][2][3];
+                        MInt16 metaIndexes[NumMetaRounds][16];
+                        MFloat metaError[NumMetaRounds][2];
+
+                        for (int tweak = 0; tweak < NumTweakRounds; tweak++)
+                        {
+                            IndexSelector<3> indexSelectors[2];
+                            EndpointRefiner<3> refiners[2];
+
+                            for (int refinePass = 0; refinePass < NumRefineRounds; refinePass++)
+                            {
+                                int metaRound = tweak * NumRefineRounds + refinePass;
+
+                                MInt16(&mrQuantizedEndPoints)[2][2][3] = metaEndPointsQuantized[metaRound];
+                                MInt16(&mrIndexes)[16] = metaIndexes[metaRound];
+
+                                for (int subset = 0; subset < numSubsets; subset++)
+                                {
+                                    MInt16 endPointsColorSpace[2][3];
+
+                                    if (refinePass == 0)
+                                    {
+                                        UnfinishedEndpoints<3> ufep = partitioned ? partitionedUFEP[p][subset] : singleUFEP;
+
+                                        if (isSigned)
+                                            ufep.FinishHDRSigned(tweak, indexRange, endPointsColorSpace[0], endPointsColorSpace[1]);
+                                        else
+                                            ufep.FinishHDRUnsigned(tweak, indexRange, endPointsColorSpace[0], endPointsColorSpace[1]);
+                                    }
+                                    else
+                                        refiners[subset].GetRefinedEndpointsHDR(endPointsColorSpace, isSigned);
+
+                                    refiners[subset].Init(indexRange, channelWeights);
+
+                                    int fixupIndex = (subset == 0) ? 0 : BC7Data::g_fixupIndexes2[p];
+
+                                    IndexSelector<3> indexSelector;
+                                    QuantizeEndpoints(endPointsColorSpace, floatPixels, mrQuantizedEndPoints[subset], mrIndexes, indexSelector, partitionMask, subset, fixupIndex, aPrec, isSigned, indexRange, channelWeights);
+
+                                    MFloat subsetError = ParallelMath::MakeFloatZero();
+
+                                    {
+                                        ParallelMath::RoundTowardNearestForScope rtn;
+                                        for (int px = 0; px < 16; px++)
+                                        {
+                                            if (subset != ((partitionMask >> px) & 1))
+                                                continue;
+
+                                            MInt16 index;
+                                            if (px == fixupIndex)
+                                                index = mrIndexes[px];
+                                            else
+                                            {
+                                                index = indexSelector.SelectIndex(floatPixels[px], &rtn);
+                                                mrIndexes[px] = index;
+                                            }
+
+                                            MInt16 reconstructed[3];
+                                            indexSelector.ReconstructHDR(mrIndexes[px], reconstructed, isSigned);
+
+                                            if (isSigned)
+                                                subsetError = subsetError + BCCommon::ComputeErrorHDR<3, true>(flags, reconstructed, pixels[px], channelWeights);
+                                            else
+                                                subsetError = subsetError + BCCommon::ComputeErrorHDR<3, false>(flags, reconstructed, pixels[px], channelWeights);
+
+                                            if (refinePass != NumRefineRounds - 1)
+                                                refiners[subset].ContributeUnweighted(floatPixels[px], index);
+                                        }
+                                    }
+
+                                    metaError[metaRound][subset] = subsetError;
+                                }
+                            }
+                        }
+
+                        // Now we have a bunch of attempts, but not all of them will fit in the delta coding scheme
+                        int numMeta1 = partitioned ? NumMetaRounds : 1;
+                        for (int meta0 = 0; meta0 < NumMetaRounds; meta0++)
+                        {
+                            for (int meta1 = 0; meta1 < numMeta1; meta1++)
+                            {
+                                MFloat combinedError = metaError[meta0][0];
+                                if (partitioned)
+                                    combinedError = combinedError + metaError[meta1][1];
+
+                                ParallelMath::FloatCompFlag errorBetter = ParallelMath::Less(combinedError, bestError);
+                                if (!ParallelMath::AnySet(errorBetter))
+                                    continue;
+
+                                ParallelMath::Int16CompFlag needsCommit = ParallelMath::FloatFlagToInt16(errorBetter);
+
+                                // Figure out if this is encodable
+                                for (int mode = 0; mode < BC7Data::g_numHDRModes; mode++)
+                                {
+                                    const BC7Data::BC6HModeInfo &modeInfo = BC7Data::g_hdrModes[mode];
+
+                                    if (modeInfo.m_partitioned != partitioned || modeInfo.m_aPrec != aPrec)
+                                        continue;
+
+                                    ParallelMath::Int16 encodedEPs[2][2][3];
+                                    ParallelMath::Int16CompFlag isLegal;
+                                    if (partitioned)
+                                        EvaluatePartitionedLegality(metaEndPointsQuantized[meta0][0], metaEndPointsQuantized[meta1][1], aPrec, modeInfo.m_bPrec, modeInfo.m_transformed, encodedEPs, isLegal);
+                                    else
+                                        EvaluateSingleLegality(metaEndPointsQuantized[meta0][0], aPrec, modeInfo.m_bPrec, modeInfo.m_transformed, encodedEPs[0], isLegal);
+
+                                    ParallelMath::Int16CompFlag isLegalAndBetter = (ParallelMath::FloatFlagToInt16(errorBetter) & isLegal);
+                                    if (!ParallelMath::AnySet(isLegalAndBetter))
+                                        continue;
+
+                                    ParallelMath::FloatCompFlag isLegalAndBetterFloat = ParallelMath::Int16FlagToFloat(isLegalAndBetter);
+
+                                    ParallelMath::ConditionalSet(bestError, isLegalAndBetterFloat, combinedError);
+                                    ParallelMath::ConditionalSet(bestMode, isLegalAndBetter, ParallelMath::MakeUInt16(static_cast<uint16_t>(mode)));
+                                    ParallelMath::ConditionalSet(bestPartition, isLegalAndBetter, ParallelMath::MakeUInt16(static_cast<uint16_t>(p)));
+
+                                    for (int subset = 0; subset < numSubsets; subset++)
+                                    {
+                                        for (int epi = 0; epi < 2; epi++)
+                                        {
+                                            for (int ch = 0; ch < 3; ch++)
+                                                ParallelMath::ConditionalSet(bestEndPoints[subset][epi][ch], isLegalAndBetter, encodedEPs[subset][epi][ch]);
+                                        }
+                                    }
+
+                                    for (int px = 0; px < 16; px++)
+                                    {
+                                        int subset = ((partitionMask >> px) & 1);
+                                        if (subset == 0)
+                                            ParallelMath::ConditionalSet(bestIndexes[px], isLegalAndBetter, metaIndexes[meta0][px]);
+                                        else
+                                            ParallelMath::ConditionalSet(bestIndexes[px], isLegalAndBetter, metaIndexes[meta1][px]);
+                                    }
+
+                                    needsCommit = ParallelMath::AndNot(needsCommit, isLegalAndBetter);
+                                    if (!ParallelMath::AnySet(needsCommit))
+                                        break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // At this point, everything should be set
+            for (int block = 0; block < ParallelMath::ParallelSize; block++)
+            {
+                uint16_t mode = ParallelMath::ExtractUInt16(bestMode, block);
+                uint16_t partition = ParallelMath::ExtractUInt16(bestPartition, block);
+                int32_t eps[2][2][3];
+                uint16_t indexes[16];
+
+                const BC7Data::BC6HModeInfo& modeInfo = BC7Data::g_hdrModes[mode];
+
+                const BC6HData::ModeDescriptor* desc = BC6HData::g_modeDescriptors[mode];
+
+                const size_t headerBits = modeInfo.m_partitioned ? 82 : 65;
+
+                for (int subset = 0; subset < 2; subset++)
+                {
+                    for (int epi = 0; epi < 2; epi++)
+                    {
+                        for (int ch = 0; ch < 3; ch++)
+                            eps[subset][epi][ch] = ParallelMath::ExtractUInt16(bestEndPoints[subset][epi][ch], block);
+                    }
+                }
+
+                for (int px = 0; px < 16; px++)
+                    indexes[px] = ParallelMath::ExtractUInt16(bestIndexes[px], block);
+
+                uint16_t modeID = modeInfo.m_modeID;
+
+                PackingVector pv;
+                pv.Init();
+
+                for (size_t i = 0; i < headerBits; i++)
+                {
+                    int32_t codedValue = 0;
+                    switch (desc[i].m_eField)
+                    {
+                    case BC6HData::M:  codedValue = modeID; break;
+                    case BC6HData::D:  codedValue = partition; break;
+                    case BC6HData::RW: codedValue = eps[0][0][0]; break;
+                    case BC6HData::RX: codedValue = eps[0][1][0]; break;
+                    case BC6HData::RY: codedValue = eps[1][0][0]; break;
+                    case BC6HData::RZ: codedValue = eps[1][1][0]; break;
+                    case BC6HData::GW: codedValue = eps[0][0][1]; break;
+                    case BC6HData::GX: codedValue = eps[0][1][1]; break;
+                    case BC6HData::GY: codedValue = eps[1][0][1]; break;
+                    case BC6HData::GZ: codedValue = eps[1][1][1]; break;
+                    case BC6HData::BW: codedValue = eps[0][0][2]; break;
+                    case BC6HData::BX: codedValue = eps[0][1][2]; break;
+                    case BC6HData::BY: codedValue = eps[1][0][2]; break;
+                    case BC6HData::BZ: codedValue = eps[1][1][2]; break;
+                    default: assert(false); break;
+                    }
+
+                    pv.Pack(static_cast<uint16_t>((codedValue >> desc[i].m_uBit) & 1), 1);
+                }
+
+                int fixupIndex1 = 0;
+                int indexBits = 4;
+                if (modeInfo.m_partitioned)
+                {
+                    fixupIndex1 = BC7Data::g_fixupIndexes2[partition];
+                    indexBits = 3;
+                }
+
+                for (int px = 0; px < 16; px++)
+                {
+                    uint16_t index = ParallelMath::ExtractUInt16(bestIndexes[px], block);
+                    if (px == 0 || px == fixupIndex1)
+                        pv.Pack(index, indexBits - 1);
+                    else
+                        pv.Pack(index, indexBits);
+                }
+
+                pv.Flush(packedBlocks + 16 * block);
+            }
+        }
+    };
+
     class S3TCComputer
     {
     public:
@@ -2890,7 +4322,7 @@ namespace
             QuantizeTo565(endPoints[1]);
 
             IndexSelector<3> selector;
-            selector.Init(channelWeights, endPoints, range);
+            selector.Init<false>(channelWeights, endPoints, range);
 
             MInt16 indexes[16];
 
@@ -2906,7 +4338,7 @@ namespace
                 MInt16 reconstructed[3];
                 selector.Reconstruct(index, reconstructed);
 
-                error = error + BCCommon::ComputeError<3>(flags, reconstructed, pixels[px], channelWeights);
+                error = error + BCCommon::ComputeErrorLDR<3>(flags, reconstructed, pixels[px], channelWeights);
             }
 
             ParallelMath::FloatCompFlag better = ParallelMath::Less(error, bestError);
@@ -2965,7 +4397,7 @@ namespace
             }
 
             MInt16 endPoints[2][3];
-            refiner.GetRefinedEndpoints(endPoints);
+            refiner.GetRefinedEndpointsLDR(endPoints);
 
             TestEndpoints(flags, pixels, floatPixels, endPoints, nCounts, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, nullptr);
         }
@@ -2991,7 +4423,7 @@ namespace
             MInt16 ep[2][1] = { { ParallelMath::MakeUInt16(0) }, { ParallelMath::MakeUInt16(255) } };
 
             IndexSelector<1> selector;
-            selector.Init(weights, ep, 16);
+            selector.Init<false>(weights, ep, 16);
 
             MInt16 indexes[16];
 
@@ -3030,7 +4462,7 @@ namespace
                 ParallelMath::UnpackChannel(packedPx, inputChannel, pixels[px]);
 
                 if (isSigned)
-                    pixels[px] = ParallelMath::Min(pixels[px], highTerminal);
+                    pixels[px] = ParallelMath::MinU8(pixels[px], highTerminal);
 
                 floatPixels[px] = ParallelMath::UInt16ToFloat(pixels[px]);
             }
@@ -3046,8 +4478,8 @@ namespace
                     MInt16 a = sortedPixels[sortOffset];
                     MInt16 b = sortedPixels[sortOffset + 1];
 
-                    sortedPixels[sortOffset] = ParallelMath::Min(a, b);
-                    sortedPixels[sortOffset + 1] = ParallelMath::Max(a, b);
+                    sortedPixels[sortOffset] = ParallelMath::MinU8(a, b);
+                    sortedPixels[sortOffset + 1] = ParallelMath::MaxU8(a, b);
                 }
             }
 
@@ -3078,19 +4510,19 @@ namespace
                 {
                     MInt16 ep[2][1];
 
-                    ufep.Finish(tweak, 8, ep[0], ep[1]);
-
-                    EndpointRefiner<1> refiner;
-                    refiner.Init(8, weights);
+                    ufep.FinishLDR(tweak, 8, ep[0], ep[1]);
 
                     for (int refinePass = 0; refinePass < NumAlphaRefineRounds; refinePass++)
                     {
+                        EndpointRefiner<1> refiner;
+                        refiner.Init(8, weights);
+
                         if (isSigned)
                             for (int epi = 0; epi < 2; epi++)
-                                ep[epi][0] = ParallelMath::Min(ep[epi][0], highTerminal);
+                                ep[epi][0] = ParallelMath::MinU8(ep[epi][0], highTerminal);
 
                         IndexSelector<1> indexSelector;
-                        indexSelector.Init(weights, ep, 8);
+                        indexSelector.Init<false>(weights, ep, 8);
 
                         MInt16 indexes[16];
                         MFloat error = ParallelMath::MakeFloatZero();
@@ -3102,7 +4534,7 @@ namespace
                             MInt16 reconstructedPixel;
 
                             indexSelector.Reconstruct(index, &reconstructedPixel);
-                            error = error + BCCommon::ComputeError<1>(flags, &reconstructedPixel, &pixels[px], weights);
+                            error = error + BCCommon::ComputeErrorLDR<1>(flags, &reconstructedPixel, &pixels[px], weights);
 
                             if (refinePass != NumAlphaRefineRounds - 1)
                                 refiner.ContributeUnweighted(&floatPixels[px], index);
@@ -3125,7 +4557,7 @@ namespace
                         }
 
                         if (refinePass != NumAlphaRefineRounds - 1)
-                            refiner.GetRefinedEndpoints(ep);
+                            refiner.GetRefinedEndpointsLDR(ep);
                     }
                 }
             }
@@ -3144,7 +4576,7 @@ namespace
 
                 {
                     MInt16 largestPossibleRange = bestHeuristicMax - bestHeuristicMin;
-                    MInt16 lowestPossibleClearance = ParallelMath::Min(bestHeuristicMin, static_cast<MInt16>(highTerminal - bestHeuristicMax));
+                    MInt16 lowestPossibleClearance = ParallelMath::MinU8(bestHeuristicMin, static_cast<MInt16>(highTerminal - bestHeuristicMax));
 
                     MInt16 lowestPossibleClearanceTimes10 = (lowestPossibleClearance << 2) + (lowestPossibleClearance << 4);
                     canTryClipping = ParallelMath::LessOrEqual(lowestPossibleClearanceTimes10, largestPossibleRange);
@@ -3183,7 +4615,7 @@ namespace
                             if (!ParallelMath::AnySet(areMoreSkipped))
                                 continue;
 
-                            MInt16 clearance = ParallelMath::Max(highClearances[numSkippedHigh], lowClearance);
+                            MInt16 clearance = ParallelMath::MaxU8(highClearances[numSkippedHigh], lowClearance);
                             MInt16 clearanceTimes10 = (clearance << 2) + (clearance << 4);
 
                             MInt16 range = sortedPixels[lastIndex] - sortedPixels[firstIndex];
@@ -3228,19 +4660,19 @@ namespace
                         {
                             MInt16 ep[2][1];
 
-                            ufep.Finish(tweak, 8, ep[0], ep[1]);
-
-                            EndpointRefiner<1> refiner;
-                            refiner.Init(6, weights);
+                            ufep.FinishLDR(tweak, 8, ep[0], ep[1]);
 
                             for (int refinePass = 0; refinePass < NumAlphaRefineRounds; refinePass++)
                             {
+                                EndpointRefiner<1> refiner;
+                                refiner.Init(6, weights);
+
                                 if (isSigned)
                                     for (int epi = 0; epi < 2; epi++)
-                                        ep[epi][0] = ParallelMath::Min(ep[epi][0], highTerminal);
+                                        ep[epi][0] = ParallelMath::MinU8(ep[epi][0], highTerminal);
 
                                 IndexSelector<1> indexSelector;
-                                indexSelector.Init(weights, ep, 6);
+                                indexSelector.Init<false>(weights, ep, 6);
 
                                 MInt16 indexes[16];
                                 MFloat error = ParallelMath::MakeFloatZero();
@@ -3253,9 +4685,9 @@ namespace
 
                                     indexSelector.Reconstruct(selectedIndex, &reconstructedPixel);
 
-                                    MFloat zeroError = BCCommon::ComputeError<1>(flags, &zero, &pixels[px], weights);
-                                    MFloat highTerminalError = BCCommon::ComputeError<1>(flags, &highTerminal, &pixels[px], weights);
-                                    MFloat selectedIndexError = BCCommon::ComputeError<1>(flags, &reconstructedPixel, &pixels[px], weights);
+                                    MFloat zeroError = BCCommon::ComputeErrorLDR<1>(flags, &zero, &pixels[px], weights);
+                                    MFloat highTerminalError = BCCommon::ComputeErrorLDR<1>(flags, &highTerminal, &pixels[px], weights);
+                                    MFloat selectedIndexError = BCCommon::ComputeErrorLDR<1>(flags, &reconstructedPixel, &pixels[px], weights);
 
                                     MFloat bestPixelError = zeroError;
                                     MInt16 index = ParallelMath::MakeUInt16(6);
@@ -3301,7 +4733,7 @@ namespace
                                 }
 
                                 if (refinePass != NumAlphaRefineRounds - 1)
-                                    refiner.GetRefinedEndpoints(ep);
+                                    refiner.GetRefinedEndpointsLDR(ep);
                             }
                         }
                     }
@@ -3414,7 +4846,7 @@ namespace
             MInt16 minAlpha = ParallelMath::MakeUInt16(255);
 
             for (int px = 0; px < 16; px++)
-                minAlpha = ParallelMath::Min(minAlpha, pixels[px][3]);
+                minAlpha = ParallelMath::MinU8(minAlpha, pixels[px][3]);
 
             MFloat pixelWeights[16];
             for (int px = 0; px < 16; px++)
@@ -3459,10 +4891,10 @@ namespace
                     // and pack the original indexes into the low bits.
 
                     MInt16 sortEP[2][3];
-                    ufep.Finish(0, 11, sortEP[0], sortEP[1]);
+                    ufep.FinishLDR(0, 11, sortEP[0], sortEP[1]);
 
                     IndexSelector<3> sortSelector;
-                    sortSelector.Init(channelWeights, sortEP, 1 << 11);
+                    sortSelector.Init<false>(channelWeights, sortEP, 1 << 11);
 
                     for (uint16_t px = 0; px < 16; px++)
                     {
@@ -3489,8 +4921,8 @@ namespace
                         MInt16 a = sortBins[sortLoc];
                         MInt16 b = sortBins[sortLoc - 1];
 
-                        sortBins[sortLoc] = ParallelMath::Max(a, b);
-                        sortBins[sortLoc - 1] = ParallelMath::Min(a, b);
+                        sortBins[sortLoc] = ParallelMath::MaxU8(a, b);
+                        sortBins[sortLoc - 1] = ParallelMath::MinU8(a, b);
                     }
                 }
 
@@ -3579,7 +5011,7 @@ namespace
                     {
                         MInt16 endPoints[2][3];
 
-                        ufep.Finish(tweak, range, endPoints[0], endPoints[1]);
+                        ufep.FinishLDR(tweak, range, endPoints[0], endPoints[1]);
 
                         for (int refine = 0; refine < NumRGBRefineRounds; refine++)
                         {
@@ -3589,7 +5021,7 @@ namespace
                             TestEndpoints(flags, pixels, floatPixels, endPoints, range, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, &refiner);
 
                             if (refine != NumRGBRefineRounds - 1)
-                                refiner.GetRefinedEndpoints(endPoints);
+                                refiner.GetRefinedEndpointsLDR(endPoints);
                         }
                     }
                 }
@@ -3700,6 +5132,23 @@ static void PrepareInputBlock(InputBlock inputBlocks[NUM_PARALLEL_BLOCKS], const
     }
 }
 
+static void PrepareInputBlock(InputBlock16 inputBlocks[NUM_PARALLEL_BLOCKS], const XMVECTOR *&pColor, DWORD flags)
+{
+    UNREFERENCED_PARAMETER(flags);
+
+    for (size_t block = 0; block < ParallelMath::ParallelSize; block++)
+    {
+        InputBlock16& inputBlock = inputBlocks[block];
+
+        XMHALF4 packedHalfs[NUM_PIXELS_PER_BLOCK];
+
+        for (size_t i = 0; i < NUM_PIXELS_PER_BLOCK; ++i)
+            XMStoreHalf4(packedHalfs + i, *pColor++);
+
+        memcpy(inputBlock.m_pixels, packedHalfs, NUM_PIXELS_PER_BLOCK * 8);
+    }
+}
+
 // Signed input blocks are converted into unsigned space, with the maximum value being 254
 static void PrepareSignedInputBlock(InputBlock inputBlocks[NUM_PARALLEL_BLOCKS], const XMVECTOR *&pColor, DWORD flags)
 {
@@ -3755,6 +5204,46 @@ void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, const 
         BC7Computer::Pack(options.flags, inputBlocks, pBC, channelWeights);
 
         pBC += ParallelMath::ParallelSize * 16;
+    }
+}
+
+_Use_decl_annotations_
+void DirectX::D3DXEncodeBC6HUParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+{
+    assert(pColor);
+    assert(pBC);
+
+    for (size_t blockBase = 0; blockBase < NUM_PARALLEL_BLOCKS; blockBase += ParallelMath::ParallelSize)
+    {
+        InputBlock16 inputBlocks[NUM_PARALLEL_BLOCKS];
+
+        PrepareInputBlock(inputBlocks, pColor, options.flags);
+
+        float channelWeights[4];
+        FillWeights(options, channelWeights);
+
+        BC6HComputer::Pack(options.flags, inputBlocks, pBC + (blockBase * 16), channelWeights, false);
+    }
+}
+
+_Use_decl_annotations_
+void DirectX::D3DXEncodeBC6HSParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+{
+    assert(pColor);
+    assert(pBC);
+
+    const XMVECTOR *pColorOriginal = pColor;
+
+    for (size_t blockBase = 0; blockBase < NUM_PARALLEL_BLOCKS; blockBase += ParallelMath::ParallelSize)
+    {
+        InputBlock16 inputBlocks[NUM_PARALLEL_BLOCKS];
+
+        PrepareInputBlock(inputBlocks, pColor, options.flags);
+
+        float channelWeights[4];
+        FillWeights(options, channelWeights);
+
+        BC6HComputer::Pack(options.flags, inputBlocks, pBC + (blockBase * 16), channelWeights, true);
     }
 }
 
