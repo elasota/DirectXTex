@@ -949,29 +949,29 @@ namespace
         template<unsigned int TRoundingMode>
         struct RoundForScope
         {
-            unsigned int m_oldRoundingMode;
+            unsigned int m_oldCSR;
 
             RoundForScope()
             {
-                m_oldRoundingMode = _MM_GET_ROUNDING_MODE();
-                _MM_SET_ROUNDING_MODE(TRoundingMode);
+                m_oldCSR = _mm_getcsr();
+                _mm_setcsr((m_oldCSR & ~_MM_ROUND_MASK) | (TRoundingMode));
             }
 
             ~RoundForScope()
             {
-                _MM_SET_ROUNDING_MODE(m_oldRoundingMode);
+                _mm_setcsr(m_oldCSR);
             }
         };
 
-        struct RoundTowardZeroForScope : RoundForScope<_MM_ROUND_MODE_TOWARD_ZERO>
+        struct RoundTowardZeroForScope : RoundForScope<_MM_ROUND_TOWARD_ZERO>
         {
         };
 
-        struct RoundTowardNearestForScope : RoundForScope<_MM_ROUND_MODE_NEAREST>
+        struct RoundTowardNearestForScope : RoundForScope<_MM_ROUND_NEAREST>
         {
         };
 
-        struct RoundUpForScope : RoundForScope<_MM_ROUND_MODE_UP>
+        struct RoundUpForScope : RoundForScope<_MM_ROUND_UP>
         {
         };
 
@@ -3849,7 +3849,7 @@ namespace
             }
         }
 
-        static void QuantizeEndpoints(const MInt16 endPoints[2][3], const MFloat floatPixels[16][3], MInt16 quantizedEndPoints[2][3], MInt16 indexes[16], IndexSelector<3> &indexSelector, int partitionMask, int subset, int fixupIndex, int precision, bool isSigned, int indexRange, const float *channelWeights)
+        static void QuantizeEndpoints(const MInt16 endPoints[2][3], const MFloat floatPixels[16][3], MInt16 quantizedEndPoints[2][3], MInt16 indexes[16], IndexSelector<3> &indexSelector, int fixupIndex, int precision, bool isSigned, int indexRange, const float *channelWeights)
         {
             ParallelMath::RoundUpForScope ru;
 
@@ -3896,7 +3896,7 @@ namespace
             indexes[fixupIndex] = index;
         }
 
-        static void EvaluatePartitionedLegality(const MInt16 ep0[2][3], const MInt16 ep1[2][3], int aPrec, const int bPrec[3], bool isTransformed, MInt16 outEncodedEPs[2][2][3], ParallelMath::Int16CompFlag& outIsLegal)
+        static void EvaluatePartitionedLegality(const MInt16 ep0[2][3], const MInt16 ep1[2][3], const int bPrec[3], bool isTransformed, MInt16 outEncodedEPs[2][2][3], ParallelMath::Int16CompFlag& outIsLegal)
         {
             ParallelMath::Int16CompFlag allLegal = ParallelMath::Equal(ParallelMath::MakeUInt16(0), ParallelMath::MakeUInt16(0));
 
@@ -3932,7 +3932,7 @@ namespace
             outIsLegal = allLegal;
         }
 
-        static void EvaluateSingleLegality(const MInt16 ep[2][3], int aPrec, const int bPrec[3], bool isTransformed, MInt16 outEncodedEPs[2][3], ParallelMath::Int16CompFlag& outIsLegal)
+        static void EvaluateSingleLegality(const MInt16 ep[2][3], const int bPrec[3], bool isTransformed, MInt16 outEncodedEPs[2][3], ParallelMath::Int16CompFlag& outIsLegal)
         {
             ParallelMath::Int16CompFlag allLegal = ParallelMath::Equal(ParallelMath::MakeUInt16(0), ParallelMath::MakeUInt16(0));
 
@@ -4059,7 +4059,6 @@ namespace
 
                         for (int tweak = 0; tweak < NumTweakRounds; tweak++)
                         {
-                            IndexSelector<3> indexSelectors[2];
                             EndpointRefiner<3> refiners[2];
 
                             for (int refinePass = 0; refinePass < NumRefineRounds; refinePass++)
@@ -4090,7 +4089,7 @@ namespace
                                     int fixupIndex = (subset == 0) ? 0 : BC7Data::g_fixupIndexes2[p];
 
                                     IndexSelector<3> indexSelector;
-                                    QuantizeEndpoints(endPointsColorSpace, floatPixels, mrQuantizedEndPoints[subset], mrIndexes, indexSelector, partitionMask, subset, fixupIndex, aPrec, isSigned, indexRange, channelWeights);
+                                    QuantizeEndpoints(endPointsColorSpace, floatPixels, mrQuantizedEndPoints[subset], mrIndexes, indexSelector, fixupIndex, aPrec, isSigned, indexRange, channelWeights);
 
                                     MFloat subsetError = ParallelMath::MakeFloatZero();
 
@@ -4155,9 +4154,9 @@ namespace
                                     ParallelMath::Int16 encodedEPs[2][2][3];
                                     ParallelMath::Int16CompFlag isLegal;
                                     if (partitioned)
-                                        EvaluatePartitionedLegality(metaEndPointsQuantized[meta0][0], metaEndPointsQuantized[meta1][1], aPrec, modeInfo.m_bPrec, modeInfo.m_transformed, encodedEPs, isLegal);
+                                        EvaluatePartitionedLegality(metaEndPointsQuantized[meta0][0], metaEndPointsQuantized[meta1][1], modeInfo.m_bPrec, modeInfo.m_transformed, encodedEPs, isLegal);
                                     else
-                                        EvaluateSingleLegality(metaEndPointsQuantized[meta0][0], aPrec, modeInfo.m_bPrec, modeInfo.m_transformed, encodedEPs[0], isLegal);
+                                        EvaluateSingleLegality(metaEndPointsQuantized[meta0][0], modeInfo.m_bPrec, modeInfo.m_transformed, encodedEPs[0], isLegal);
 
                                     ParallelMath::Int16CompFlag isLegalAndBetter = (ParallelMath::FloatFlagToInt16(errorBetter) & isLegal);
                                     if (!ParallelMath::AnySet(isLegalAndBetter))
@@ -5231,8 +5230,6 @@ void DirectX::D3DXEncodeBC6HSParallel(uint8_t *pBC, const XMVECTOR *pColor, cons
 {
     assert(pColor);
     assert(pBC);
-
-    const XMVECTOR *pColorOriginal = pColor;
 
     for (size_t blockBase = 0; blockBase < NUM_PARALLEL_BLOCKS; blockBase += ParallelMath::ParallelSize)
     {
