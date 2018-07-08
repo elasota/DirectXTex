@@ -384,6 +384,11 @@
     <None Include="Shaders\Compiled\BC7Encode_TryMode456CS.pdb" />
     <None Include="Shaders\CompileShaders.cmd" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ConvectionKernels\ConvectionKernels.vcxproj">
+      <Project>{5e4f0557-b7d8-4d9b-9d3a-2b966c9c1b47}</Project>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
   <Target Name="ATGEnsureShaders" BeforeTargets="PrepareForBuild">
