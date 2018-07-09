@@ -1624,8 +1624,8 @@ namespace CVTT
 
             static UInt16 RoundAndConvertToU16(Float v, const void* /*roundingMode*/)
             {
-                __m128i lo = _mm_cvttps_epi32(_mm_add_ps(v.m_values[0], _mm_set1_ps(-32768)));
-                __m128i hi = _mm_cvttps_epi32(_mm_add_ps(v.m_values[1], _mm_set1_ps(-32768)));
+                __m128i lo = _mm_cvtps_epi32(_mm_add_ps(v.m_values[0], _mm_set1_ps(-32768)));
+                __m128i hi = _mm_cvtps_epi32(_mm_add_ps(v.m_values[1], _mm_set1_ps(-32768)));
 
                 __m128i packed = _mm_packs_epi32(lo, hi);
 
@@ -1636,8 +1636,8 @@ namespace CVTT
 
             static UInt15 RoundAndConvertToU15(Float v, const void* /*roundingMode*/)
             {
-                __m128i lo = _mm_cvttps_epi32(v.m_values[0]);
-                __m128i hi = _mm_cvttps_epi32(v.m_values[1]);
+                __m128i lo = _mm_cvtps_epi32(v.m_values[0]);
+                __m128i hi = _mm_cvtps_epi32(v.m_values[1]);
 
                 __m128i packed = _mm_packs_epi32(lo, hi);
 
@@ -1648,8 +1648,8 @@ namespace CVTT
 
             static SInt16 RoundAndConvertToS16(Float v, const void* /*roundingMode*/)
             {
-                __m128i lo = _mm_cvttps_epi32(v.m_values[0]);
-                __m128i hi = _mm_cvttps_epi32(v.m_values[1]);
+                __m128i lo = _mm_cvtps_epi32(v.m_values[0]);
+                __m128i hi = _mm_cvtps_epi32(v.m_values[1]);
 
                 __m128i packed = _mm_packs_epi32(lo, hi);
 
