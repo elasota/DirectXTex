@@ -100,8 +100,11 @@ static CVTT::Options GenerateCVTTOptions(const TexCompressOptions &options)
         cvttOptions.flags |= CVTT::Flags::BC7_Use3Subsets;
     if (options.flags & BC_FLAGS_UNIFORM)
         cvttOptions.flags |= CVTT::Flags::Uniform;
+
     if (options.flags & BC_FLAGS_HIGH_QUALITY)
         cvttOptions.flags |= CVTT::Flags::S3TC_Exhaustive;
+    else
+        cvttOptions.flags |= CVTT::Flags::BC6H_FastIndexing;
 
     return cvttOptions;
 }

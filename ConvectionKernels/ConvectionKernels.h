@@ -8,10 +8,11 @@ namespace CVTT
 {
     namespace Flags
     {
-        const uint32_t BC7_Use3Subsets  = 0x1;
-        const uint32_t BC7_ForceMode6   = 0x2;
-        const uint32_t S3TC_Exhaustive  = 0x4;
-        const uint32_t Uniform          = 0x8;
+        const uint32_t BC7_Use3Subsets      = 0x01;
+        const uint32_t BC7_ForceMode6       = 0x02;
+        const uint32_t S3TC_Exhaustive      = 0x04;
+        const uint32_t Uniform              = 0x08;
+        const uint32_t BC6H_FastIndexing    = 0x10;
     }
 
     const unsigned int NumParallelBlocks = 8;

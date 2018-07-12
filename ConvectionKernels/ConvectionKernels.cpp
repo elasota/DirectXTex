@@ -1675,21 +1675,75 @@ namespace CVTT
                 return result;
             }
 
-            static Float SqDiffInt16(const UInt16 &a, const UInt16 &b)
+            static Float SqDiffSInt16(const SInt16 &a, const SInt16 &b)
             {
-                Float af = ToFloat(a);
-                Float bf = ToFloat(b);
-                Float diff = af - bf;
+                __m128i diffU = _mm_sub_epi16(_mm_max_epi16(a.m_value, b.m_value), _mm_min_epi16(a.m_value, b.m_value));
 
+                __m128i mulHi = _mm_mulhi_epu16(diffU, diffU);
+                __m128i mulLo = _mm_mullo_epi16(diffU, diffU);
+                __m128i sqDiffHi = _mm_unpackhi_epi16(mulLo, mulHi);
+                __m128i sqDiffLo = _mm_unpacklo_epi16(mulLo, mulHi);
+
+                Float result;
+                result.m_values[0] = _mm_cvtepi32_ps(sqDiffLo);
+                result.m_values[1] = _mm_cvtepi32_ps(sqDiffHi);
+
+                return result;
+            }
+
+            static Float TwosCLHalfToFloat(const SInt16 &v)
+            {
+                __m128i absV = _mm_add_epi16(_mm_xor_si128(v.m_value, _mm_srai_epi16(v.m_value, 15)), _mm_srli_epi16(v.m_value, 15));
+
+                __m128i signBits = _mm_and_si128(v.m_value, _mm_set1_epi16(-32768));
+                __m128i mantissa = _mm_and_si128(v.m_value, _mm_set1_epi16(0x03ff));
+                __m128i exponent = _mm_and_si128(v.m_value, _mm_set1_epi16(0x7c00));
+
+                __m128i isDenormal = _mm_cmpeq_epi16(exponent, _mm_setzero_si128());
+
+                // Convert exponent to high-bits 
+                exponent = _mm_add_epi16(_mm_srli_epi16(exponent, 3), _mm_set1_epi16(14336));
+
+                __m128i denormalCorrectionHigh = _mm_and_si128(isDenormal, _mm_or_si128(signBits, _mm_set1_epi16(14336)));
+
+                __m128i highBits = _mm_or_si128(signBits, _mm_or_si128(exponent, _mm_srli_epi16(mantissa, 3)));
+                __m128i lowBits = _mm_slli_epi16(mantissa, 13);
+
+                __m128i flow = _mm_unpacklo_epi16(lowBits, highBits);
+                __m128i fhigh = _mm_unpackhi_epi16(lowBits, highBits);
+
+                __m128i correctionLow = _mm_unpacklo_epi16(_mm_setzero_si128(), denormalCorrectionHigh);
+                __m128i correctionHigh = _mm_unpackhi_epi16(_mm_setzero_si128(), denormalCorrectionHigh);
+
+                Float result;
+                result.m_values[0] = _mm_sub_ps(_mm_castsi128_ps(flow), _mm_castsi128_ps(correctionLow));
+                result.m_values[1] = _mm_sub_ps(_mm_castsi128_ps(fhigh), _mm_castsi128_ps(correctionHigh));
+
+                return result;
+            }
+
+            static Float SqDiff2CLFloat(const SInt16 &a, const Float &b)
+            {
+                Float fa = TwosCLHalfToFloat(a);
+
+                Float diff = fa - b;
                 return diff * diff;
             }
 
-            static Float SqDiffSInt16(const SInt16 &a, const SInt16 &b)
+            static Float SqDiff2CL(const SInt16 &a, const SInt16 &b)
             {
-                Float af = ToFloat(a);
-                Float bf = ToFloat(b);
-                Float diff = af - bf;
+                Float fa = TwosCLHalfToFloat(a);
+                Float fb = TwosCLHalfToFloat(b);
 
+                Float diff = fa - fb;
+                return diff * diff;
+            }
+
+            static Float SqDiff2CLFloat(const SInt16 &a, float aWeight, const Float &b)
+            {
+                Float fa = TwosCLHalfToFloat(a) * aWeight;
+
+                Float diff = fa - b;
                 return diff * diff;
             }
 
@@ -2229,6 +2283,55 @@ namespace CVTT
                 return delta * delta;
             }
 
+            static float TwosCLHalfToFloat(int32_t v)
+            {
+                int32_t absV = (v < 0) ? -v : v;
+
+                int32_t signBits = (v & -32768);
+                int32_t mantissa = (v & 0x03ff);
+                int32_t exponent = (v & 0x7c00);
+
+                bool isDenormal = (exponent == 0);
+
+                // Convert exponent to high-bits
+                exponent = (exponent >> 3) + 14336;
+
+                int32_t denormalCorrection = (isDenormal ? (signBits | 14336) : 0) << 16;
+
+                int32_t fBits = ((exponent | signBits) << 16) | (mantissa << 13);
+
+                float f, correction;
+                memcpy(&f, &fBits, 4);
+                memcpy(&correction, &denormalCorrection, 4);
+
+                return f - correction;
+            }
+
+            static Float SqDiff2CLFloat(const SInt16 &a, const Float &b)
+            {
+                Float fa = TwosCLHalfToFloat(a);
+
+                Float diff = fa - b;
+                return diff * diff;
+            }
+
+            static Float SqDiff2CL(const SInt16 &a, const SInt16 &b)
+            {
+                Float fa = TwosCLHalfToFloat(a);
+                Float fb = TwosCLHalfToFloat(b);
+
+                Float diff = fa - fb;
+                return diff * diff;
+            }
+
+            static Float SqDiff2CLFloat(const SInt16 &a, float aWeight, const Float &b)
+            {
+                Float fa = TwosCLHalfToFloat(a) * aWeight;
+
+                Float diff = fa - b;
+                return diff * diff;
+            }
+
             static int32_t RightShift(int32_t v, int bits)
             {
                 return SignedRightShift(v, bits);
@@ -2744,8 +2847,8 @@ namespace CVTT
                 for (int ch = 0; ch < TVectorSize; ch++)
                 {
                     m_origin[ch] = ParallelMath::ToFloat(colorSpaceEndpoints[0][ch]);
-                    m_opposingOrigin[ch] = ParallelMath::ToFloat(colorSpaceEndpoints[1][ch]);
-                    epDiffWeighted[ch] = (m_opposingOrigin[ch] - m_origin[ch]) * channelWeights[ch];
+                    MFloat opposingOriginCh = ParallelMath::ToFloat(colorSpaceEndpoints[1][ch]);
+                    epDiffWeighted[ch] = (opposingOriginCh - m_origin[ch]) * channelWeights[ch];
                 }
 
                 MFloat lenSquared = epDiffWeighted[0] * epDiffWeighted[0];
@@ -2783,14 +2886,54 @@ namespace CVTT
                 }
             }
 
-            void ReconstructHDRSigned(const MUInt15 &index, MSInt16* pixel) const
+            MUInt15 SelectIndexLDR(const MFloat* pixel, const ParallelMath::RoundTowardNearestForScope* rtn) const
+            {
+                MFloat dist = (pixel[0] - m_origin[0]) * m_axis[0];
+                for (int ch = 1; ch < TVectorSize; ch++)
+                    dist = dist + (pixel[ch] - m_origin[ch]) * m_axis[ch];
+
+                return ParallelMath::RoundAndConvertToU15(ParallelMath::Clamp(dist, 0.0f, m_maxValue), rtn);
+            }
+
+        protected:
+            MAInt16 m_endPoint[2][TVectorSize];
+
+        private:
+            MFloat m_origin[TVectorSize];
+            MFloat m_axis[TVectorSize];
+            int m_range;
+            float m_maxValue;
+            bool m_isUniform;
+        };
+
+
+        template<int TVectorSize>
+        class IndexSelectorHDR : public IndexSelector<TVectorSize>
+        {
+        public:
+            typedef ParallelMath::UInt15 MUInt15;
+            typedef ParallelMath::UInt16 MUInt16;
+            typedef ParallelMath::UInt31 MUInt31;
+            typedef ParallelMath::SInt16 MSInt16;
+            typedef ParallelMath::SInt32 MSInt32;
+            typedef ParallelMath::Float MFloat;
+
+        private:
+
+            MUInt15 InvertSingle(const MUInt15& anIndex) const
+            {
+                MUInt15 inverted = m_maxValueMinusOne - anIndex;
+                return ParallelMath::Select(m_isInverted, inverted, anIndex);
+            }
+
+            void ReconstructHDRSignedUninverted(const MUInt15 &index, MSInt16* pixel) const
             {
                 MUInt15 weight = ParallelMath::LosslessCast<MUInt15>::Cast(ParallelMath::RightShift(ParallelMath::CompactMultiply(g_weightReciprocals[m_range], index) + 256, 9));
 
                 for (int ch = 0; ch < TVectorSize; ch++)
                 {
-                    MSInt16 ep0 = ParallelMath::LosslessCast<MSInt16>::Cast(m_endPoint[0][ch]);
-                    MSInt16 ep1 = ParallelMath::LosslessCast<MSInt16>::Cast(m_endPoint[1][ch]);
+                    MSInt16 ep0 = ParallelMath::LosslessCast<MSInt16>::Cast(this->m_endPoint[0][ch]);
+                    MSInt16 ep1 = ParallelMath::LosslessCast<MSInt16>::Cast(this->m_endPoint[1][ch]);
 
                     MSInt32 pixel32 = ParallelMath::XMultiply((ParallelMath::MakeUInt15(64) - weight), ep0) + ParallelMath::XMultiply(weight, ep1);
 
@@ -2800,14 +2943,14 @@ namespace CVTT
                 }
             }
 
-            void ReconstructHDRUnsigned(const MUInt15 &index, MSInt16* pixel) const
+            void ReconstructHDRUnsignedUninverted(const MUInt15 &index, MSInt16* pixel) const
             {
                 MUInt15 weight = ParallelMath::LosslessCast<MUInt15>::Cast(ParallelMath::RightShift(ParallelMath::CompactMultiply(g_weightReciprocals[m_range], index) + 256, 9));
 
                 for (int ch = 0; ch < TVectorSize; ch++)
                 {
-                    MUInt16 ep0 = ParallelMath::LosslessCast<MUInt16>::Cast(m_endPoint[0][ch]);
-                    MUInt16 ep1 = ParallelMath::LosslessCast<MUInt16>::Cast(m_endPoint[1][ch]);
+                    MUInt16 ep0 = ParallelMath::LosslessCast<MUInt16>::Cast(this->m_endPoint[0][ch]);
+                    MUInt16 ep1 = ParallelMath::LosslessCast<MUInt16>::Cast(this->m_endPoint[1][ch]);
 
                     MUInt31 pixel31 = ParallelMath::XMultiply((ParallelMath::MakeUInt15(64) - weight), ep0) + ParallelMath::XMultiply(weight, ep1);
 
@@ -2817,44 +2960,89 @@ namespace CVTT
                 }
             }
 
-            MUInt15 SelectIndex(const MFloat* pixel, const ParallelMath::RoundTowardNearestForScope* rtn) const
+            MFloat ErrorForInterpolatorComponent(int index, int ch, const MFloat *pixel) const
             {
-                MFloat dist = (pixel[0] - m_origin[0]) * m_axis[0];
-                for (int ch = 1; ch < TVectorSize; ch++)
-                    dist = dist + (pixel[ch] - m_origin[ch]) * m_axis[ch];
+                MFloat diff = pixel[ch] - m_reconstructedInterpolators[index][ch];
+                return diff * diff;
+            }
 
-                return ParallelMath::RoundAndConvertToU15(ParallelMath::Clamp(dist, 0.0f, m_maxValue), rtn);
+            MFloat ErrorForInterpolator(int index, const MFloat *pixel) const
+            {
+                MFloat error = ErrorForInterpolatorComponent(index, 0, pixel);
+                for (int ch = 1; ch < TVectorSize; ch++)
+                    error = error + ErrorForInterpolatorComponent(index, ch, pixel);
+                return error;
+            }
+
+        public:
+
+            void InitHDR(int range, bool isSigned, bool fastIndexing, const float *channelWeights)
+            {
+                assert(range <= 16);
+
+                m_range = range;
+
+                m_isInverted = ParallelMath::Less(ParallelMath::MakeUInt15(0), ParallelMath::MakeUInt15(0));
+                m_maxValueMinusOne = ParallelMath::MakeUInt15(static_cast<uint16_t>(range - 1));
+
+                if (!fastIndexing)
+                {
+                    for (int i = 0; i < range; i++)
+                    {
+                        MSInt16 recon2CL[TVectorSize];
+
+                        if (isSigned)
+                            ReconstructHDRSignedUninverted(ParallelMath::MakeUInt15(static_cast<uint16_t>(i)), recon2CL);
+                        else
+                            ReconstructHDRUnsignedUninverted(ParallelMath::MakeUInt15(static_cast<uint16_t>(i)), recon2CL);
+
+                        for (int ch = 0; ch < TVectorSize; ch++)
+                            m_reconstructedInterpolators[i][ch] = ParallelMath::TwosCLHalfToFloat(recon2CL[ch]) * channelWeights[ch];
+                    }
+                }
+            }
+
+            void ReconstructHDRSigned(const MUInt15 &index, MSInt16* pixel) const
+            {
+                ReconstructHDRSignedUninverted(InvertSingle(index), pixel);
+            }
+
+            void ReconstructHDRUnsigned(const MUInt15 &index, MSInt16* pixel) const
+            {
+                ReconstructHDRUnsignedUninverted(InvertSingle(index), pixel);
             }
 
             void ConditionalInvert(ParallelMath::Int16CompFlag invert)
             {
-                ParallelMath::FloatCompFlag invertFloat = ParallelMath::Int16FlagToFloat(invert);
+                m_isInverted = invert;
+            }
 
-                for (int ch = 0; ch < TVectorSize; ch++)
+            MUInt15 SelectIndexHDRSlow(const MFloat* pixel, const ParallelMath::RoundTowardNearestForScope*) const
+            {
+                MUInt15 index = ParallelMath::MakeUInt15(0);
+
+                MFloat bestError = ErrorForInterpolator(0, pixel);
+                for (int i = 1; i < m_range; i++)
                 {
-                    MAInt16 firstEP = m_endPoint[0][ch];
-                    MAInt16 secondEP = m_endPoint[1][ch];
-
-                    m_endPoint[0][ch] = ParallelMath::Select(invert, secondEP, firstEP);
-                    m_endPoint[1][ch] = ParallelMath::Select(invert, firstEP, secondEP);
-
-                    MFloat origin = m_origin[ch];
-                    MFloat opposingOrigin = m_opposingOrigin[ch];
-
-                    ParallelMath::ConditionalSet(m_origin[ch], invertFloat, opposingOrigin);
-                    ParallelMath::ConditionalSet(m_opposingOrigin[ch], invertFloat, origin);
-                    ParallelMath::ConditionalSet(m_axis[ch], invertFloat, -m_axis[ch]);
+                    MFloat error = ErrorForInterpolator(i, pixel);
+                    ParallelMath::FloatCompFlag errorBetter = ParallelMath::Less(error, bestError);
+                    ParallelMath::ConditionalSet(index, ParallelMath::FloatFlagToInt16(errorBetter), ParallelMath::MakeUInt15(static_cast<uint16_t>(i)));
+                    bestError = ParallelMath::Min(bestError, error);
                 }
+
+                return InvertSingle(index);
+            }
+
+            MUInt15 SelectIndexHDRFast(const MFloat* pixel, const ParallelMath::RoundTowardNearestForScope* rtn) const
+            {
+                return InvertSingle(this->SelectIndexLDR(pixel, rtn));
             }
 
         private:
-            MAInt16 m_endPoint[2][TVectorSize];
-            MFloat m_origin[TVectorSize];
-            MFloat m_opposingOrigin[TVectorSize];
-            MFloat m_axis[TVectorSize];
+            MFloat m_reconstructedInterpolators[16][TVectorSize];
+            ParallelMath::Int16CompFlag m_isInverted;
+            MUInt15 m_maxValueMinusOne;
             int m_range;
-            float m_maxValue;
-            bool m_isUniform;
         };
 
         // Solve for a, b where v = a*t + b
@@ -3047,7 +3235,7 @@ namespace CVTT
             }
 
             template<int TVectorSize>
-            static MFloat ComputeErrorHDR(uint32_t flags, const MSInt16 reconstructed[TVectorSize], const MSInt16 original[TVectorSize], const float channelWeights[TVectorSize])
+            static MFloat ComputeErrorHDRFast(uint32_t flags, const MSInt16 reconstructed[TVectorSize], const MSInt16 original[TVectorSize], const float channelWeights[TVectorSize])
             {
                 MFloat error = ParallelMath::MakeFloatZero();
                 if (flags & Flags::Uniform)
@@ -3059,6 +3247,24 @@ namespace CVTT
                 {
                     for (int ch = 0; ch < TVectorSize; ch++)
                         error = error + ParallelMath::SqDiffSInt16(reconstructed[ch], original[ch]) * ParallelMath::MakeFloat(channelWeights[ch]);
+                }
+
+                return error;
+            }
+
+            template<int TVectorSize>
+            static MFloat ComputeErrorHDRSlow(uint32_t flags, const MSInt16 reconstructed[TVectorSize], const MSInt16 original[TVectorSize], const float channelWeights[TVectorSize])
+            {
+                MFloat error = ParallelMath::MakeFloatZero();
+                if (flags & Flags::Uniform)
+                {
+                    for (int ch = 0; ch < TVectorSize; ch++)
+                        error = error + ParallelMath::SqDiff2CL(reconstructed[ch], original[ch]);
+                }
+                else
+                {
+                    for (int ch = 0; ch < TVectorSize; ch++)
+                        error = error + ParallelMath::SqDiff2CL(reconstructed[ch], original[ch]) * ParallelMath::MakeFloat(channelWeights[ch]);
                 }
 
                 return error;
@@ -3509,7 +3715,7 @@ namespace CVTT
                                     {
                                         int px = BC7Data::g_fragments[shapeStart + pxi];
 
-                                        MUInt15 index = indexSelector.SelectIndex(floatPixels[px], rtn);
+                                        MUInt15 index = indexSelector.SelectIndexLDR(floatPixels[px], rtn);
 
                                         if (refine != NumRefineRounds - 1)
                                             epRefiner.ContributeUnweighted(floatPixels[px], index);
@@ -3723,8 +3929,8 @@ namespace CVTT
 
                                     for (int px = 0; px < 16; px++)
                                     {
-                                        MUInt15 rgbIndex = rgbIndexSelector.SelectIndex(floatRotatedRGB[px], rtn);
-                                        MUInt15 alphaIndex = alphaIndexSelector.SelectIndex(floatPixels[px] + alphaChannel, rtn);
+                                        MUInt15 rgbIndex = rgbIndexSelector.SelectIndexLDR(floatRotatedRGB[px], rtn);
+                                        MUInt15 alphaIndex = alphaIndexSelector.SelectIndexLDR(floatPixels[px] + alphaChannel, rtn);
 
                                         if (refine != NumRefineRounds - 1)
                                         {
@@ -4058,7 +4264,7 @@ namespace CVTT
             typedef ParallelMath::UInt31 MUInt31;
 
             static const int NumTweakRounds = 4;
-            static const int NumRefineRounds = 2;
+            static const int NumRefineRounds = 3;
 
             static MSInt16 QuantizeSingleEndpointElementSigned(const MSInt16 &elem2CL, int precision, const ParallelMath::RoundUpForScope* ru)
             {
@@ -4128,7 +4334,7 @@ namespace CVTT
                     ParallelMath::Int16CompFlag isZero = ParallelMath::Equal(comp, zero);
                     ParallelMath::Int16CompFlag isMax = ParallelMath::Less(maxCompMinusOne, comp);
 
-                    unq = (ParallelMath::LosslessCast<MUInt16>::Cast(comp) << (16 - precision)) + ParallelMath::MakeUInt16(static_cast<uint16_t>(0x8000 > precision));
+                    unq = (ParallelMath::LosslessCast<MUInt16>::Cast(comp) << (16 - precision)) + ParallelMath::MakeUInt16(static_cast<uint16_t>(0x8000 >> precision));
 
                     ParallelMath::ConditionalSet(unq, isZero, ParallelMath::MakeUInt16(0));
                     ParallelMath::ConditionalSet(unq, isMax, ParallelMath::MakeUInt16(0xffff));
@@ -4138,7 +4344,7 @@ namespace CVTT
                 outUnquantizedFinished = ParallelMath::ToUInt16(ParallelMath::RightShift(ParallelMath::XMultiply(unq, ParallelMath::MakeUInt15(31)), 6));
             }
 
-            static void QuantizeEndpointsSigned(const MSInt16 endPoints[2][3], const MFloat floatPixels[16][3], MAInt16 quantizedEndPoints[2][3], MUInt15 indexes[16], IndexSelector<3> &indexSelector, int fixupIndex, int precision, int indexRange, const float *channelWeights, const ParallelMath::RoundTowardNearestForScope *rtn)
+            static void QuantizeEndpointsSigned(const MSInt16 endPoints[2][3], const MFloat floatPixelsColorSpace[16][3], const MFloat floatPixelsLinearWeighted[16][3], MAInt16 quantizedEndPoints[2][3], MUInt15 indexes[16], IndexSelectorHDR<3> &indexSelector, int fixupIndex, int precision, int indexRange, const float *channelWeights, bool fastIndexing, const ParallelMath::RoundTowardNearestForScope *rtn)
             {
                 MSInt16 unquantizedEP[2][3];
                 MSInt16 finishedUnquantizedEP[2][3];
@@ -4158,10 +4364,11 @@ namespace CVTT
                 }
 
                 indexSelector.Init(channelWeights, unquantizedEP, finishedUnquantizedEP, indexRange);
+                indexSelector.InitHDR(indexRange, true, fastIndexing, channelWeights);
 
                 MUInt15 halfRangeMinusOne = ParallelMath::MakeUInt15(static_cast<uint16_t>(indexRange / 2) - 1);
 
-                MUInt15 index = indexSelector.SelectIndex(floatPixels[fixupIndex], rtn);
+                MUInt15 index = fastIndexing ? indexSelector.SelectIndexHDRFast(floatPixelsColorSpace[fixupIndex], rtn) : indexSelector.SelectIndexHDRSlow(floatPixelsLinearWeighted[fixupIndex], rtn);
 
                 ParallelMath::Int16CompFlag invert = ParallelMath::Less(halfRangeMinusOne, index);
 
@@ -4184,7 +4391,7 @@ namespace CVTT
                 indexes[fixupIndex] = index;
             }
 
-            static void QuantizeEndpointsUnsigned(const MSInt16 endPoints[2][3], const MFloat floatPixels[16][3], MAInt16 quantizedEndPoints[2][3], MUInt15 indexes[16], IndexSelector<3> &indexSelector, int fixupIndex, int precision, int indexRange, const float *channelWeights, const ParallelMath::RoundTowardNearestForScope *rtn)
+            static void QuantizeEndpointsUnsigned(const MSInt16 endPoints[2][3], const MFloat floatPixelsColorSpace[16][3], const MFloat floatPixelsLinearWeighted[16][3], MAInt16 quantizedEndPoints[2][3], MUInt15 indexes[16], IndexSelectorHDR<3> &indexSelector, int fixupIndex, int precision, int indexRange, const float *channelWeights, bool fastIndexing, const ParallelMath::RoundTowardNearestForScope *rtn)
             {
                 MUInt16 unquantizedEP[2][3];
                 MUInt16 finishedUnquantizedEP[2][3];
@@ -4204,10 +4411,11 @@ namespace CVTT
                 }
 
                 indexSelector.Init(channelWeights, unquantizedEP, finishedUnquantizedEP, indexRange);
+                indexSelector.InitHDR(indexRange, false, fastIndexing, channelWeights);
 
                 MUInt15 halfRangeMinusOne = ParallelMath::MakeUInt15(static_cast<uint16_t>(indexRange / 2) - 1);
 
-                MUInt15 index = indexSelector.SelectIndex(floatPixels[fixupIndex], rtn);
+                MUInt15 index = fastIndexing ? indexSelector.SelectIndexHDRFast(floatPixelsColorSpace[fixupIndex], rtn) : indexSelector.SelectIndexHDRSlow(floatPixelsLinearWeighted[fixupIndex], rtn);
 
                 ParallelMath::Int16CompFlag invert = ParallelMath::Less(halfRangeMinusOne, index);
 
@@ -4252,14 +4460,14 @@ namespace CVTT
                                 if (epi == 0 && subset == 0)
                                     continue;
 
-                                MAInt16 aReduced = (outEncodedEPs[subset][epi][ch] & aSignificantMask);
+                                MAInt16 bReduced = (outEncodedEPs[subset][epi][ch] & aSignificantMask);
 
                                 MSInt16 delta = ParallelMath::TruncateToPrecisionSigned(ParallelMath::LosslessCast<MSInt16>::Cast(ParallelMath::AbstractSubtract(outEncodedEPs[subset][epi][ch], outEncodedEPs[0][0][ch])), bPrec[ch]);
 
                                 outEncodedEPs[subset][epi][ch] = ParallelMath::LosslessCast<MAInt16>::Cast(delta);
 
                                 MAInt16 reconstructed = (ParallelMath::AbstractAdd(outEncodedEPs[subset][epi][ch], outEncodedEPs[0][0][ch]) & aSignificantMask);
-                                allLegal = allLegal & ParallelMath::Equal(reconstructed, aReduced);
+                                allLegal = allLegal & ParallelMath::Equal(reconstructed, bReduced);
                             }
                         }
                     }
@@ -4284,14 +4492,14 @@ namespace CVTT
 
                     if (isTransformed)
                     {
-                        MAInt16 aReduced = (outEncodedEPs[0][ch] & aSignificantMask);
+                        MAInt16 bReduced = (outEncodedEPs[1][ch] & aSignificantMask);
 
                         MSInt16 delta = ParallelMath::TruncateToPrecisionSigned(ParallelMath::LosslessCast<MSInt16>::Cast(ParallelMath::AbstractSubtract(outEncodedEPs[1][ch], outEncodedEPs[0][ch])), bPrec[ch]);
 
                         outEncodedEPs[1][ch] = ParallelMath::LosslessCast<MAInt16>::Cast(delta);
 
                         MAInt16 reconstructed = (ParallelMath::AbstractAdd(outEncodedEPs[1][ch], outEncodedEPs[0][ch]) & aSignificantMask);
-                        allLegal = allLegal & ParallelMath::Equal(reconstructed, aReduced);
+                        allLegal = allLegal & ParallelMath::Equal(reconstructed, bReduced);
                     }
                 }
 
@@ -4300,12 +4508,19 @@ namespace CVTT
 
             static void Pack(uint32_t flags, const InputBlockF16* inputs, uint8_t* packedBlocks, const float channelWeights[4], bool isSigned)
             {
+                bool fastIndexing = (flags & CVTT::Flags::BC6H_FastIndexing);
+                float sqrtChannelWeights[3];
+
                 ParallelMath::RoundTowardNearestForScope rtn;
 
                 MSInt16 pixels[16][3];
-                MFloat floatPixels[16][3];
+                MFloat floatPixels2CL[16][3];
+                MFloat floatPixelsLinearWeighted[16][3];
 
                 MSInt16 low15Bits = ParallelMath::MakeSInt16(32767);
+
+                for (int ch = 0; ch < 3; ch++)
+                    sqrtChannelWeights[ch] = static_cast<float>(sqrt(channelWeights[ch]));
 
                 for (int px = 0; px < 16; px++)
                 {
@@ -4328,13 +4543,14 @@ namespace CVTT
                         pixelValue = ParallelMath::Min(pixelValue, ParallelMath::MakeSInt16(31743));
 
                         pixels[px][ch] = pixelValue;
-                        floatPixels[px][ch] = ParallelMath::ToFloat(pixelValue);
+                        floatPixels2CL[px][ch] = ParallelMath::ToFloat(pixelValue);
+                        floatPixelsLinearWeighted[px][ch] = ParallelMath::TwosCLHalfToFloat(pixelValue) * channelWeights[ch];
                     }
                 }
 
                 MFloat preWeightedPixels[16][3];
 
-                BCCommon::PreWeightPixelsHDR<3>(preWeightedPixels, pixels, channelWeights);
+                BCCommon::PreWeightPixelsHDR<3>(preWeightedPixels, pixels, sqrtChannelWeights);
 
                 MAInt16 bestEndPoints[2][2][3];
                 MUInt15 bestIndexes[16];
@@ -4373,7 +4589,7 @@ namespace CVTT
                     }
 
                     for (int subset = 0; subset < 2; subset++)
-                        partitionedUFEP[p][subset] = epSelectors[subset].GetEndpoints(channelWeights);
+                        partitionedUFEP[p][subset] = epSelectors[subset].GetEndpoints(sqrtChannelWeights);
                 }
 
                 // Generate UFEP for single
@@ -4388,7 +4604,7 @@ namespace CVTT
                         epSelector.FinishPass(pass);
                     }
 
-                    singleUFEP = epSelector.GetEndpoints(channelWeights);
+                    singleUFEP = epSelector.GetEndpoints(sqrtChannelWeights);
                 }
 
                 for (int partitionedInt = 0; partitionedInt < 2; partitionedInt++)
@@ -4415,19 +4631,32 @@ namespace CVTT
                             MUInt15 metaIndexes[NumMetaRounds][16];
                             MFloat metaError[NumMetaRounds][2];
 
-                            for (int tweak = 0; tweak < NumTweakRounds; tweak++)
+                            bool roundValid[NumMetaRounds][2];
+
+                            for (int r = 0; r < NumMetaRounds; r++)
+                                for (int subset = 0; subset < 2; subset++)
+                                    roundValid[r][subset] = true;
+
+                            for (int subset = 0; subset < numSubsets; subset++)
                             {
-                                EndpointRefiner<3> refiners[2];
-
-                                for (int refinePass = 0; refinePass < NumRefineRounds; refinePass++)
+                                for (int tweak = 0; tweak < NumTweakRounds; tweak++)
                                 {
-                                    int metaRound = tweak * NumRefineRounds + refinePass;
+                                    EndpointRefiner<3> refiners[2];
 
-                                    MAInt16(&mrQuantizedEndPoints)[2][2][3] = metaEndPointsQuantized[metaRound];
-                                    MUInt15(&mrIndexes)[16] = metaIndexes[metaRound];
-
-                                    for (int subset = 0; subset < numSubsets; subset++)
+                                    bool abortRemainingRefines = false;
+                                    for (int refinePass = 0; refinePass < NumRefineRounds; refinePass++)
                                     {
+                                        int metaRound = tweak * NumRefineRounds + refinePass;
+
+                                        if (abortRemainingRefines)
+                                        {
+                                            roundValid[metaRound][subset] = false;
+                                            continue;
+                                        }
+
+                                        MAInt16(&mrQuantizedEndPoints)[2][2][3] = metaEndPointsQuantized[metaRound];
+                                        MUInt15(&mrIndexes)[16] = metaIndexes[metaRound];
+
                                         MSInt16 endPointsColorSpace[2][3];
 
                                         if (refinePass == 0)
@@ -4446,11 +4675,37 @@ namespace CVTT
 
                                         int fixupIndex = (subset == 0) ? 0 : BC7Data::g_fixupIndexes2[p];
 
-                                        IndexSelector<3> indexSelector;
+                                        IndexSelectorHDR<3> indexSelector;
                                         if (isSigned)
-                                            QuantizeEndpointsSigned(endPointsColorSpace, floatPixels, mrQuantizedEndPoints[subset], mrIndexes, indexSelector, fixupIndex, aPrec, indexRange, channelWeights, &rtn);
+                                            QuantizeEndpointsSigned(endPointsColorSpace, floatPixels2CL, floatPixelsLinearWeighted, mrQuantizedEndPoints[subset], mrIndexes, indexSelector, fixupIndex, aPrec, indexRange, channelWeights, fastIndexing, &rtn);
                                         else
-                                            QuantizeEndpointsUnsigned(endPointsColorSpace, floatPixels, mrQuantizedEndPoints[subset], mrIndexes, indexSelector, fixupIndex, aPrec, indexRange, channelWeights, &rtn);
+                                            QuantizeEndpointsUnsigned(endPointsColorSpace, floatPixels2CL, floatPixelsLinearWeighted, mrQuantizedEndPoints[subset], mrIndexes, indexSelector, fixupIndex, aPrec, indexRange, channelWeights, fastIndexing, &rtn);
+
+                                        if (metaRound > 0)
+                                        {
+                                            ParallelMath::Int16CompFlag anySame = ParallelMath::Less(ParallelMath::MakeUInt15(0), ParallelMath::MakeUInt15(0));
+
+                                            for (int prevRound = 0; prevRound < metaRound; prevRound++)
+                                            {
+                                                MAInt16(&prevRoundEPs)[2][3] = metaEndPointsQuantized[prevRound][subset];
+
+                                                ParallelMath::Int16CompFlag same = ParallelMath::Equal(ParallelMath::MakeUInt15(0), ParallelMath::MakeUInt15(0));
+
+                                                for (int epi = 0; epi < 2; epi++)
+                                                    for (int ch = 0; ch < 3; ch++)
+                                                        same = (same & ParallelMath::Equal(prevRoundEPs[epi][ch], mrQuantizedEndPoints[subset][epi][ch]));
+
+                                                anySame = (anySame | same);
+                                                if (ParallelMath::AllSet(anySame))
+                                                    break;
+                                            }
+
+                                            if (ParallelMath::AllSet(anySame))
+                                            {
+                                                roundValid[metaRound][subset] = false;
+                                                continue;
+                                            }
+                                        }
 
                                         MFloat subsetError = ParallelMath::MakeFloatZero();
 
@@ -4465,7 +4720,7 @@ namespace CVTT
                                                     index = mrIndexes[px];
                                                 else
                                                 {
-                                                    index = indexSelector.SelectIndex(floatPixels[px], &rtn);
+                                                    index = fastIndexing ? indexSelector.SelectIndexHDRFast(floatPixels2CL[px], &rtn) : indexSelector.SelectIndexHDRSlow(floatPixelsLinearWeighted[px], &rtn);
                                                     mrIndexes[px] = index;
                                                 }
 
@@ -4475,10 +4730,10 @@ namespace CVTT
                                                 else
                                                     indexSelector.ReconstructHDRUnsigned(mrIndexes[px], reconstructed);
 
-                                                subsetError = subsetError + BCCommon::ComputeErrorHDR<3>(flags, reconstructed, pixels[px], channelWeights);
+                                                subsetError = subsetError + (fastIndexing ? BCCommon::ComputeErrorHDRFast<3>(flags, reconstructed, pixels[px], channelWeights) : BCCommon::ComputeErrorHDRSlow<3>(flags, reconstructed, pixels[px], channelWeights));
 
                                                 if (refinePass != NumRefineRounds - 1)
-                                                    refiners[subset].ContributeUnweighted(floatPixels[px], index);
+                                                    refiners[subset].ContributeUnweighted(floatPixels2CL[px], index);
                                             }
                                         }
 
@@ -4491,11 +4746,19 @@ namespace CVTT
                             int numMeta1 = partitioned ? NumMetaRounds : 1;
                             for (int meta0 = 0; meta0 < NumMetaRounds; meta0++)
                             {
+                                if (!roundValid[meta0][0])
+                                    continue;
+
                                 for (int meta1 = 0; meta1 < numMeta1; meta1++)
                                 {
                                     MFloat combinedError = metaError[meta0][0];
                                     if (partitioned)
+                                    {
+                                        if (!roundValid[meta1][1])
+                                            continue;
+
                                         combinedError = combinedError + metaError[meta1][1];
+                                    }
 
                                     ParallelMath::FloatCompFlag errorBetter = ParallelMath::Less(combinedError, bestError);
                                     if (!ParallelMath::AnySet(errorBetter))
@@ -4690,7 +4953,7 @@ namespace CVTT
                 MFloat error = ParallelMath::MakeFloatZero();
                 for (int px = 0; px < 16; px++)
                 {
-                    MUInt15 index = selector.SelectIndex(floatPixels[px], rtn);
+                    MUInt15 index = selector.SelectIndexLDR(floatPixels[px], rtn);
                     indexes[px] = index;
 
                     if (refiner)
@@ -4788,7 +5051,7 @@ namespace CVTT
                 MUInt15 indexes[16];
 
                 for (int px = 0; px < 16; px++)
-                    indexes[px] = selector.SelectIndex(&floatPixels[px], &rtn);
+                    indexes[px] = selector.SelectIndexLDR(&floatPixels[px], &rtn);
 
                 for (int block = 0; block < ParallelMath::ParallelSize; block++)
                 {
@@ -4888,7 +5151,7 @@ namespace CVTT
 
                             for (int px = 0; px < 16; px++)
                             {
-                                MUInt15 index = indexSelector.SelectIndex(&floatPixels[px], &rtn);
+                                MUInt15 index = indexSelector.SelectIndexLDR(&floatPixels[px], &rtn);
 
                                 MUInt15 reconstructedPixel;
 
@@ -5036,7 +5299,7 @@ namespace CVTT
 
                                     for (int px = 0; px < 16; px++)
                                     {
-                                        MUInt15 selectedIndex = indexSelector.SelectIndex(&floatPixels[px], &rtn);
+                                        MUInt15 selectedIndex = indexSelector.SelectIndexLDR(&floatPixels[px], &rtn);
 
                                         MUInt15 reconstructedPixel;
 
@@ -5254,7 +5517,7 @@ namespace CVTT
 
                         for (int16_t px = 0; px < 16; px++)
                         {
-                            MSInt16 sortBin = ParallelMath::LosslessCast<MSInt16>::Cast(sortSelector.SelectIndex(floatPixels[px], &rtn) << 4);
+                            MSInt16 sortBin = ParallelMath::LosslessCast<MSInt16>::Cast(sortSelector.SelectIndexLDR(floatPixels[px], &rtn) << 4);
 
                             if (alphaTest)
                             {
