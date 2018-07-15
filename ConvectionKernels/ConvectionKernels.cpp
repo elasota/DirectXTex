@@ -2287,9 +2287,9 @@ namespace CVTT
             {
                 int32_t absV = (v < 0) ? -v : v;
 
-                int32_t signBits = (v & -32768);
-                int32_t mantissa = (v & 0x03ff);
-                int32_t exponent = (v & 0x7c00);
+                int32_t signBits = (absV & -32768);
+                int32_t mantissa = (absV & 0x03ff);
+                int32_t exponent = (absV & 0x7c00);
 
                 bool isDenormal = (exponent == 0);
 
@@ -3235,7 +3235,7 @@ namespace CVTT
             }
 
             template<int TVectorSize>
-            static MFloat ComputeErrorHDRFast(uint32_t flags, const MSInt16 reconstructed[TVectorSize], const MSInt16 original[TVectorSize], const float channelWeights[TVectorSize])
+            static MFloat ComputeErrorHDRFast(uint32_t flags, const MSInt16 reconstructed[TVectorSize], const MSInt16 original[TVectorSize], const float channelWeightsSq[TVectorSize])
             {
                 MFloat error = ParallelMath::MakeFloatZero();
                 if (flags & Flags::Uniform)
@@ -3246,14 +3246,14 @@ namespace CVTT
                 else
                 {
                     for (int ch = 0; ch < TVectorSize; ch++)
-                        error = error + ParallelMath::SqDiffSInt16(reconstructed[ch], original[ch]) * ParallelMath::MakeFloat(channelWeights[ch]);
+                        error = error + ParallelMath::SqDiffSInt16(reconstructed[ch], original[ch]) * ParallelMath::MakeFloat(channelWeightsSq[ch]);
                 }
 
                 return error;
             }
 
             template<int TVectorSize>
-            static MFloat ComputeErrorHDRSlow(uint32_t flags, const MSInt16 reconstructed[TVectorSize], const MSInt16 original[TVectorSize], const float channelWeights[TVectorSize])
+            static MFloat ComputeErrorHDRSlow(uint32_t flags, const MSInt16 reconstructed[TVectorSize], const MSInt16 original[TVectorSize], const float channelWeightsSq[TVectorSize])
             {
                 MFloat error = ParallelMath::MakeFloatZero();
                 if (flags & Flags::Uniform)
@@ -3264,7 +3264,7 @@ namespace CVTT
                 else
                 {
                     for (int ch = 0; ch < TVectorSize; ch++)
-                        error = error + ParallelMath::SqDiff2CL(reconstructed[ch], original[ch]) * ParallelMath::MakeFloat(channelWeights[ch]);
+                        error = error + ParallelMath::SqDiff2CL(reconstructed[ch], original[ch]) * ParallelMath::MakeFloat(channelWeightsSq[ch]);
                 }
 
                 return error;
@@ -3469,6 +3469,11 @@ namespace CVTT
 
             static void TrySinglePlane(uint32_t flags, const MUInt15 pixels[16][4], const MFloat floatPixels[16][4], const float channelWeights[4], WorkInfo& work, const ParallelMath::RoundTowardNearestForScope *rtn)
             {
+                float channelWeightsSq[4];
+
+                for (int ch = 0; ch < 4; ch++)
+                    channelWeightsSq[ch] = channelWeights[ch] * channelWeights[ch];
+
                 SinglePlaneTemporaries temps;
 
                 MUInt15 maxAlpha = ParallelMath::MakeUInt15(0);
@@ -3724,7 +3729,7 @@ namespace CVTT
 
                                         indexSelector.ReconstructLDR(index, reconstructed);
 
-                                        shapeError = shapeError + BCCommon::ComputeErrorLDR<4>(flags, reconstructed, pixels[px], channelWeights);
+                                        shapeError = shapeError + BCCommon::ComputeErrorLDR<4>(flags, reconstructed, pixels[px], channelWeightsSq);
 
                                         indexes[pxi] = index;
                                     }
@@ -3813,6 +3818,10 @@ namespace CVTT
                 if (flags & Flags::BC7_ForceMode6)
                     return; // Mode 6 is not a dual-plane mode, skip it
 
+                float channelWeightsSq[4];
+                for (int ch = 0; ch < 4; ch++)
+                    channelWeightsSq[ch] = channelWeights[ch] * channelWeights[ch];
+
                 for (uint16_t mode = 4; mode <= 5; mode++)
                 {
                     for (uint16_t rotation = 0; rotation < 4; rotation++)
@@ -3838,7 +3847,9 @@ namespace CVTT
                         uint16_t maxIndexSelector = (mode == 4) ? 2 : 1;
 
                         float rotatedRGBWeights[3] = { channelWeights[redChannel], channelWeights[greenChannel], channelWeights[blueChannel] };
+                        float rotatedRGBWeightsSq[3] = { channelWeightsSq[redChannel], channelWeightsSq[greenChannel], channelWeightsSq[blueChannel] };
                         float rotatedAlphaWeight[1] = { channelWeights[alphaChannel] };
+                        float rotatedAlphaWeightSq[1] = { channelWeightsSq[alphaChannel] };
 
                         float uniformWeight[1] = { 1.0f };   // Since the alpha channel is independent, there's no need to bother with weights when doing refinement or selection, only error
 
@@ -3944,9 +3955,9 @@ namespace CVTT
                                         rgbIndexSelector.ReconstructLDR(rgbIndex, reconstructedRGB);
                                         alphaIndexSelector.ReconstructLDR(alphaIndex, reconstructedAlpha);
 
-                                        errorRGB = errorRGB + BCCommon::ComputeErrorLDR<3>(flags, reconstructedRGB, rotatedRGB[px], rotatedRGBWeights);
+                                        errorRGB = errorRGB + BCCommon::ComputeErrorLDR<3>(flags, reconstructedRGB, rotatedRGB[px], rotatedRGBWeightsSq);
 
-                                        errorA = errorA + BCCommon::ComputeErrorLDR<1>(flags, reconstructedAlpha, pixels[px] + alphaChannel, rotatedAlphaWeight);
+                                        errorA = errorA + BCCommon::ComputeErrorLDR<1>(flags, reconstructedAlpha, pixels[px] + alphaChannel, rotatedAlphaWeightSq);
 
                                         rgbIndexes[px] = rgbIndex;
                                         alphaIndexes[px] = alphaIndex;
@@ -4509,7 +4520,7 @@ namespace CVTT
             static void Pack(uint32_t flags, const InputBlockF16* inputs, uint8_t* packedBlocks, const float channelWeights[4], bool isSigned)
             {
                 bool fastIndexing = (flags & CVTT::Flags::BC6H_FastIndexing);
-                float sqrtChannelWeights[3];
+                float channelWeightsSq[3];
 
                 ParallelMath::RoundTowardNearestForScope rtn;
 
@@ -4520,7 +4531,7 @@ namespace CVTT
                 MSInt16 low15Bits = ParallelMath::MakeSInt16(32767);
 
                 for (int ch = 0; ch < 3; ch++)
-                    sqrtChannelWeights[ch] = static_cast<float>(sqrt(channelWeights[ch]));
+                    channelWeightsSq[ch] = channelWeights[ch] * channelWeights[ch];
 
                 for (int px = 0; px < 16; px++)
                 {
@@ -4550,7 +4561,7 @@ namespace CVTT
 
                 MFloat preWeightedPixels[16][3];
 
-                BCCommon::PreWeightPixelsHDR<3>(preWeightedPixels, pixels, sqrtChannelWeights);
+                BCCommon::PreWeightPixelsHDR<3>(preWeightedPixels, pixels, channelWeights);
 
                 MAInt16 bestEndPoints[2][2][3];
                 MUInt15 bestIndexes[16];
@@ -4589,7 +4600,7 @@ namespace CVTT
                     }
 
                     for (int subset = 0; subset < 2; subset++)
-                        partitionedUFEP[p][subset] = epSelectors[subset].GetEndpoints(sqrtChannelWeights);
+                        partitionedUFEP[p][subset] = epSelectors[subset].GetEndpoints(channelWeights);
                 }
 
                 // Generate UFEP for single
@@ -4604,7 +4615,7 @@ namespace CVTT
                         epSelector.FinishPass(pass);
                     }
 
-                    singleUFEP = epSelector.GetEndpoints(sqrtChannelWeights);
+                    singleUFEP = epSelector.GetEndpoints(channelWeights);
                 }
 
                 for (int partitionedInt = 0; partitionedInt < 2; partitionedInt++)
@@ -4730,7 +4741,7 @@ namespace CVTT
                                                 else
                                                     indexSelector.ReconstructHDRUnsigned(mrIndexes[px], reconstructed);
 
-                                                subsetError = subsetError + (fastIndexing ? BCCommon::ComputeErrorHDRFast<3>(flags, reconstructed, pixels[px], channelWeights) : BCCommon::ComputeErrorHDRSlow<3>(flags, reconstructed, pixels[px], channelWeights));
+                                                subsetError = subsetError + (fastIndexing ? BCCommon::ComputeErrorHDRFast<3>(flags, reconstructed, pixels[px], channelWeightsSq) : BCCommon::ComputeErrorHDRSlow<3>(flags, reconstructed, pixels[px], channelWeightsSq));
 
                                                 if (refinePass != NumRefineRounds - 1)
                                                     refiners[subset].ContributeUnweighted(floatPixels2CL[px], index);
@@ -4936,6 +4947,11 @@ namespace CVTT
             static void TestEndpoints(uint32_t flags, const MUInt15 pixels[16][4], const MFloat floatPixels[16][4], const MUInt15 unquantizedEndPoints[2][3], int range, const float* channelWeights,
                 MFloat &bestError, MUInt15 bestEndpoints[2][3], MUInt15 bestIndexes[16], MUInt15 &bestRange, EndpointRefiner<3> *refiner, const ParallelMath::RoundTowardNearestForScope *rtn)
             {
+                float channelWeightsSq[3];
+
+                for (int ch = 0; ch < 3; ch++)
+                    channelWeightsSq[ch] = channelWeights[ch] * channelWeights[ch];
+
                 MUInt15 endPoints[2][3];
 
                 for (int ep = 0; ep < 2; ep++)
@@ -4962,7 +4978,7 @@ namespace CVTT
                     MUInt15 reconstructed[3];
                     selector.ReconstructLDR(index, reconstructed);
 
-                    error = error + BCCommon::ComputeErrorLDR<3>(flags, reconstructed, pixels[px], channelWeights);
+                    error = error + BCCommon::ComputeErrorLDR<3>(flags, reconstructed, pixels[px], channelWeightsSq);
                 }
 
                 ParallelMath::FloatCompFlag better = ParallelMath::Less(error, bestError);
@@ -5071,7 +5087,7 @@ namespace CVTT
             {
                 ParallelMath::RoundTowardNearestForScope rtn;
 
-                float weights[1] = { 1.0f };
+                float oneWeight[1] = { 1.0f };
 
                 MUInt15 pixels[16];
                 MFloat floatPixels[16];
@@ -5137,14 +5153,14 @@ namespace CVTT
                         for (int refinePass = 0; refinePass < NumAlphaRefineRounds; refinePass++)
                         {
                             EndpointRefiner<1> refiner;
-                            refiner.Init(8, weights);
+                            refiner.Init(8, oneWeight);
 
                             if (isSigned)
                                 for (int epi = 0; epi < 2; epi++)
                                     ep[epi][0] = ParallelMath::Min(ep[epi][0], highTerminal);
 
                             IndexSelector<1> indexSelector;
-                            indexSelector.Init<false>(weights, ep, 8);
+                            indexSelector.Init<false>(oneWeight, ep, 8);
 
                             MUInt15 indexes[16];
                             MFloat error = ParallelMath::MakeFloatZero();
@@ -5156,7 +5172,7 @@ namespace CVTT
                                 MUInt15 reconstructedPixel;
 
                                 indexSelector.ReconstructLDR(index, &reconstructedPixel);
-                                error = error + BCCommon::ComputeErrorLDR<1>(flags, &reconstructedPixel, &pixels[px], weights);
+                                error = error + BCCommon::ComputeErrorLDR<1>(flags, &reconstructedPixel, &pixels[px], oneWeight);
 
                                 if (refinePass != NumAlphaRefineRounds - 1)
                                     refiner.ContributeUnweighted(&floatPixels[px], index);
@@ -5285,14 +5301,14 @@ namespace CVTT
                                 for (int refinePass = 0; refinePass < NumAlphaRefineRounds; refinePass++)
                                 {
                                     EndpointRefiner<1> refiner;
-                                    refiner.Init(6, weights);
+                                    refiner.Init(6, oneWeight);
 
                                     if (isSigned)
                                         for (int epi = 0; epi < 2; epi++)
                                             ep[epi][0] = ParallelMath::Min(ep[epi][0], highTerminal);
 
                                     IndexSelector<1> indexSelector;
-                                    indexSelector.Init<false>(weights, ep, 6);
+                                    indexSelector.Init<false>(oneWeight, ep, 6);
 
                                     MUInt15 indexes[16];
                                     MFloat error = ParallelMath::MakeFloatZero();
@@ -5305,9 +5321,9 @@ namespace CVTT
 
                                         indexSelector.ReconstructLDR(selectedIndex, &reconstructedPixel);
 
-                                        MFloat zeroError = BCCommon::ComputeErrorLDR<1>(flags, &zero, &pixels[px], weights);
-                                        MFloat highTerminalError = BCCommon::ComputeErrorLDR<1>(flags, &highTerminal, &pixels[px], weights);
-                                        MFloat selectedIndexError = BCCommon::ComputeErrorLDR<1>(flags, &reconstructedPixel, &pixels[px], weights);
+                                        MFloat zeroError = BCCommon::ComputeErrorLDR<1>(flags, &zero, &pixels[px], oneWeight);
+                                        MFloat highTerminalError = BCCommon::ComputeErrorLDR<1>(flags, &highTerminal, &pixels[px], oneWeight);
+                                        MFloat selectedIndexError = BCCommon::ComputeErrorLDR<1>(flags, &reconstructedPixel, &pixels[px], oneWeight);
 
                                         MFloat bestPixelError = zeroError;
                                         MUInt15 index = ParallelMath::MakeUInt15(6);
