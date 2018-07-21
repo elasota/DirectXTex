@@ -158,28 +158,6 @@ HRESULT GPUCompressBC::Initialize(ID3D11Device* pDevice)
     if (FAILED(hr))
         return hr;
 
-    //--- Create compute shader library: BC7 ------------------------------------------
-
-    // Modes 4, 5, 6
-    hr = pDevice->CreateComputeShader(BC7Encode_TryMode456CS, sizeof(BC7Encode_TryMode456CS), nullptr, m_BC7_tryMode456CS.ReleaseAndGetAddressOf());
-    if (FAILED(hr))
-        return hr;
-
-    // Modes 1, 3, 7
-    hr = pDevice->CreateComputeShader(BC7Encode_TryMode137CS, sizeof(BC7Encode_TryMode137CS), nullptr, m_BC7_tryMode137CS.ReleaseAndGetAddressOf());
-    if (FAILED(hr))
-        return hr;
-
-    // Modes 0, 2
-    hr = pDevice->CreateComputeShader(BC7Encode_TryMode02CS, sizeof(BC7Encode_TryMode02CS), nullptr, m_BC7_tryMode02CS.ReleaseAndGetAddressOf());
-    if (FAILED(hr))
-        return hr;
-
-    // Encode
-    hr = pDevice->CreateComputeShader(BC7Encode_EncodeBlockCS, sizeof(BC7Encode_EncodeBlockCS), nullptr, m_BC7_encodeBlockCS.ReleaseAndGetAddressOf());
-    if (FAILED(hr))
-        return hr;
-
     //--- Create compute shader library: BC7 HQ ------------------------------------------
 
     // Modes 4, 5, 6
@@ -236,8 +214,6 @@ HRESULT GPUCompressBC::Prepare(size_t width, size_t height, DWORD flags, DXGI_FO
         m_bc7_mode137 = true;
     }
 
-    m_hq = (flags & TEX_COMPRESS_HIGH_QUALITY) != 0;
-
     size_t xblocks = std::max<size_t>(1, (width + 3) >> 2);
     size_t yblocks = std::max<size_t>(1, (height + 3) >> 2);
     size_t num_blocks = xblocks * yblocks;
@@ -273,7 +249,7 @@ HRESULT GPUCompressBC::Prepare(size_t width, size_t height, DWORD flags, DXGI_FO
         return E_POINTER;
 
     // Create structured buffers
-    size_t bufferSize = num_blocks * sizeof(BufferBC6HBC7) * (m_hq ? 7 : 1);
+    size_t bufferSize = num_blocks * sizeof(BufferBC6HBC7) * 7;
     {
         D3D11_BUFFER_DESC desc = {};
         desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
@@ -333,7 +309,7 @@ HRESULT GPUCompressBC::Prepare(size_t width, size_t height, DWORD flags, DXGI_FO
     // Create shader resource views
     {
         D3D11_SHADER_RESOURCE_VIEW_DESC desc = {};
-        desc.Buffer.NumElements = static_cast<UINT>(num_blocks * (m_hq ? 7 : 1));
+        desc.Buffer.NumElements = static_cast<UINT>(num_blocks * 7);
         desc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 
         HRESULT hr = pDevice->CreateShaderResourceView(m_err1.Get(), &desc, m_err1SRV.ReleaseAndGetAddressOf());
@@ -352,7 +328,7 @@ HRESULT GPUCompressBC::Prepare(size_t width, size_t height, DWORD flags, DXGI_FO
     // Create unordered access views
     {
         D3D11_UNORDERED_ACCESS_VIEW_DESC desc = {};
-        desc.Buffer.NumElements = static_cast<UINT>(num_blocks * (m_hq ? 7 : 1));
+        desc.Buffer.NumElements = static_cast<UINT>(num_blocks * 7);
         desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
 
         HRESULT hr = pDevice->CreateUnorderedAccessView(m_output.Get(), &desc, m_outputUAV.ReleaseAndGetAddressOf());
@@ -499,7 +475,7 @@ HRESULT GPUCompressBC::Compress(const Image& srcImage, const Image& destImage)
         {
             //--- BC7 -----------------------------------------------------------------
             ID3D11ShaderResourceView* pSRVs[] = { sourceSRV.Get(), nullptr };
-            RunComputeShader(pContext, m_hq ? m_BC7_hq_tryMode456CS.Get() : m_BC7_tryMode456CS.Get(), pSRVs, 2, m_constBuffer.Get(),
+            RunComputeShader(pContext, m_BC7_hq_tryMode456CS.Get(), pSRVs, 2, m_constBuffer.Get(),
                 m_err1UAV.Get(), std::max<UINT>((uThreadGroupCount + 3) / 4, 1));
 
             if (m_bc7_mode137)
@@ -533,7 +509,7 @@ HRESULT GPUCompressBC::Compress(const Image& srcImage, const Image& destImage)
                     }
 
                     pSRVs[1] = (i & 1) ? m_err2SRV.Get() : m_err1SRV.Get();
-                    RunComputeShader(pContext, m_hq ? m_BC7_hq_tryMode137CS.Get() : m_BC7_tryMode137CS.Get(), pSRVs, 2, m_constBuffer.Get(),
+                    RunComputeShader(pContext, m_BC7_hq_tryMode137CS.Get(), pSRVs, 2, m_constBuffer.Get(),
                         (i & 1) ? m_err1UAV.Get() : m_err2UAV.Get(), uThreadGroupCount);
                 }
             }
@@ -569,23 +545,15 @@ HRESULT GPUCompressBC::Compress(const Image& srcImage, const Image& destImage)
 
                     pSRVs[1] = (i & 1) ? m_err1SRV.Get() : m_err2SRV.Get();
 
-                    if (m_hq)
-                    {
-                        if (i == 0)
-                            RunComputeShader(pContext, m_BC7_hq_tryMode0CS.Get(), pSRVs, 2, m_constBuffer.Get(), m_err1UAV.Get(), std::max<UINT>((uThreadGroupCount + 3) / 4, 1));
-                        else //if (i == 2)
-                            RunComputeShader(pContext, m_BC7_hq_tryMode2CS.Get(), pSRVs, 2, m_constBuffer.Get(), m_err2UAV.Get(), uThreadGroupCount);
-                    }
-                    else
-                    {
-                        RunComputeShader(pContext, m_BC7_tryMode02CS.Get(), pSRVs, 2, m_constBuffer.Get(),
-                            (i & 1) ? m_err2UAV.Get() : m_err1UAV.Get(), uThreadGroupCount);
-                    }
+                    if (i == 0)
+                        RunComputeShader(pContext, m_BC7_hq_tryMode0CS.Get(), pSRVs, 2, m_constBuffer.Get(), m_err1UAV.Get(), std::max<UINT>((uThreadGroupCount + 3) / 4, 1));
+                    else //if (i == 2)
+                        RunComputeShader(pContext, m_BC7_hq_tryMode2CS.Get(), pSRVs, 2, m_constBuffer.Get(), m_err2UAV.Get(), uThreadGroupCount);
                 }
             }
 
             pSRVs[1] = (m_bc7_mode02 || m_bc7_mode137) ? m_err2SRV.Get() : m_err1SRV.Get();
-            RunComputeShader(pContext, m_hq ? m_BC7_hq_encodeBlockCS.Get() : m_BC7_encodeBlockCS.Get(), pSRVs, 2, m_constBuffer.Get(),
+            RunComputeShader(pContext, m_BC7_hq_encodeBlockCS.Get(), pSRVs, 2, m_constBuffer.Get(),
                 m_outputUAV.Get(), std::max<UINT>((uThreadGroupCount + 3) / 4, 1));
         }
         else

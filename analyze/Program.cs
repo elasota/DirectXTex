@@ -395,8 +395,8 @@ namespace analyze
                 else if (targetFormat == CompressedFormat.BC6H)
                     args += "-f BC6H_UF16 ";
 
-                if (!useGPU)
-                    args += "-nogpu ";
+                if (useGPU)
+                    args += "-gpu 0 ";
                 if (useHQ)
                     args += "-bchq ";
                 args += path;

@@ -84,7 +84,6 @@ enum OPTIONS
     OPT_TA_MIRROR,
     OPT_FORCE_SINGLEPROC,
     OPT_GPU,
-    OPT_NOGPU,
     OPT_FEATURE_LEVEL,
     OPT_FIT_POWEROF2,
     OPT_ALPHA_WEIGHT,
@@ -93,7 +92,6 @@ enum OPTIONS
     OPT_COMPRESS_UNIFORM,
     OPT_COMPRESS_MAX,
     OPT_COMPRESS_QUICK,
-    OPT_COMPRESS_HQ,
     OPT_COMPRESS_DITHER,
     OPT_COMPRESS_RWEIGHT,
     OPT_COMPRESS_GWEIGHT,
@@ -173,7 +171,6 @@ const SValue g_pOptions[] =
     { L"mirror",        OPT_TA_MIRROR },
     { L"singleproc",    OPT_FORCE_SINGLEPROC },
     { L"gpu",           OPT_GPU },
-    { L"nogpu",         OPT_NOGPU },
     { L"fl",            OPT_FEATURE_LEVEL },
     { L"pow2",          OPT_FIT_POWEROF2 },
     { L"aw",            OPT_ALPHA_WEIGHT },
@@ -182,7 +179,6 @@ const SValue g_pOptions[] =
     { L"bcuniform",     OPT_COMPRESS_UNIFORM },
     { L"bcmax",         OPT_COMPRESS_MAX },
     { L"bcquick",       OPT_COMPRESS_QUICK },
-    { L"bchq",          OPT_COMPRESS_HQ },
     { L"bcdither",      OPT_COMPRESS_DITHER },
     { L"rweight",       OPT_COMPRESS_RWEIGHT },
     { L"gweight",       OPT_COMPRESS_GWEIGHT },
@@ -742,7 +738,6 @@ namespace
         wprintf(L"   -singleproc         Do not use multi-threaded compression\n");
 #endif
         wprintf(L"   -gpu <adapter>      Select GPU for DirectCompute-based codecs (0 is default)\n");
-        wprintf(L"   -nogpu              Do not use DirectCompute-based codecs\n");
         wprintf(L"   -bcuniform          Use uniform rather than perceptual weighting for BC1-3\n");
         wprintf(L"   -bcdither           Use dithering for BC1-3\n");
         wprintf(L"   -bcmax              Use exhaustive compression (BC7 only)\n");
@@ -1490,10 +1485,6 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                     return 1;
                 }
                 dwCompress |= TEX_COMPRESS_BC7_USE_3SUBSETS;
-                break;
-
-            case OPT_COMPRESS_HQ:
-                dwCompress |= TEX_COMPRESS_HIGH_QUALITY;
                 break;
 
             case OPT_COMPRESS_QUICK:
@@ -2783,14 +2774,10 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                         {
                             s_tryonce = true;
 
-                            if (!(dwOptions & (DWORD64(1) << OPT_NOGPU)))
+                            if (dwOptions & (DWORD64(1) << OPT_GPU))
                             {
                                 if (!CreateDevice(adapter, pDevice.GetAddressOf()))
                                     wprintf(L"\nWARNING: DirectCompute is not available, using BC6H / BC7 CPU codec\n");
-                            }
-                            else
-                            {
-                                wprintf(L"\nWARNING: using BC6H / BC7 CPU codec\n");
                             }
                         }
                     }
