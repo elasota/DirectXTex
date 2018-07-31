@@ -8,23 +8,23 @@ namespace CVTT
 {
     namespace Flags
     {
-        const uint32_t BC7_Use3Subsets      = 0x01;
-        const uint32_t BC7_ForceMode6       = 0x02;
-        const uint32_t S3TC_Exhaustive      = 0x04;
-        const uint32_t Uniform              = 0x08;
-        const uint32_t BC6H_FastIndexing    = 0x10;
+        const uint32_t BC7_Use3Subsets      = 0x01; // Enable modes 0 and 2 in BC7 encoding (slower, better quality)
+        const uint32_t BC7_ForceMode6       = 0x02; // Use only mode 6 in BC7 encoding (faster, worse quality)
+        const uint32_t S3TC_Exhaustive      = 0x04; // Exhaustive search RGB orderings when encoding BC1-BC3 (much slower, better quality)
+        const uint32_t Uniform              = 0x08; // Uniform color channel importance
+        const uint32_t BC6H_FastIndexing    = 0x10; // Use fast indexing in BC6H encoder (faster, worse quality)
     }
 
     const unsigned int NumParallelBlocks = 8;
 
     struct Options
     {
-        uint32_t flags;
-        float threshold;
-        float redWeight;
-        float greenWeight;
-        float blueWeight;
-        float alphaWeight;
+        uint32_t flags;     // Bitmask of CVTT::Flags values
+        float threshold;    // Alpha test threshold for BC1
+        float redWeight;    // Red channel importance
+        float greenWeight;  // Green channel importance
+        float blueWeight;   // Blue channel importance
+        float alphaWeight;  // Alpha channel importance
 
         Options()
             : flags(0)
@@ -37,16 +37,19 @@ namespace CVTT
         }
     };
 
+    // RGBA input block for unsigned 8-bit formats
     struct InputBlockU8
     {
         uint8_t m_pixels[16][4];
     };
 
+    // RGBA input block for signed 8-bit formats
     struct InputBlockS8
     {
         int8_t m_pixels[16][4];
     };
 
+    // RGBA input block for half-precision float formats (bit-cast to int16_t)
     struct InputBlockF16
     {
         int16_t m_pixels[16][4];
@@ -54,6 +57,7 @@ namespace CVTT
 
     namespace Kernels
     {
+        // NOTE: All functions accept and output NumParallelBlocks blocks at once
         void EncodeBC1(uint8_t *pBC, const InputBlockU8 *pBlocks, const Options &options);
         void EncodeBC2(uint8_t *pBC, const InputBlockU8 *pBlocks, const Options &options);
         void EncodeBC3(uint8_t *pBC, const InputBlockU8 *pBlocks, const Options &options);
