@@ -1037,8 +1037,8 @@ namespace CVTT
             };
 
             typedef VInt16<IntSubtype_Signed> SInt16;
-            typedef VInt16<IntSubtype_UnsignedFull> UInt15;
-            typedef VInt16<IntSubtype_UnsignedTruncated> UInt16;
+            typedef VInt16<IntSubtype_UnsignedFull> UInt16;
+            typedef VInt16<IntSubtype_UnsignedTruncated> UInt15;
             typedef VInt16<IntSubtype_Abstract> AInt16;
 
             template<int TSubtype>
