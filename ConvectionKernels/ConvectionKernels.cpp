@@ -3294,8 +3294,7 @@ namespace CVTT
         class BC7Computer
         {
         public:
-            static const int NumTweakRounds = 4;
-            static const int NumRefineRounds = 2;
+            static const int MaxTweakRounds = 4;
 
             typedef ParallelMath::SInt16 MSInt16;
             typedef ParallelMath::UInt15 MUInt15;
@@ -3467,8 +3466,16 @@ namespace CVTT
                 MFloat shapeBestError[BC7Data::g_maxFragmentsPerMode];
             };
 
-            static void TrySinglePlane(uint32_t flags, const MUInt15 pixels[16][4], const MFloat floatPixels[16][4], const float channelWeights[4], WorkInfo& work, const ParallelMath::RoundTowardNearestForScope *rtn)
+            static void TrySinglePlane(uint32_t flags, const MUInt15 pixels[16][4], const MFloat floatPixels[16][4], const float channelWeights[4], int numTweakRounds, int numRefineRounds, WorkInfo& work, const ParallelMath::RoundTowardNearestForScope *rtn)
             {
+                if (numRefineRounds < 1)
+                    numRefineRounds = 1;
+
+                if (numTweakRounds < 1)
+                    numTweakRounds = 1;
+                else if (numTweakRounds > MaxTweakRounds)
+                    numTweakRounds = MaxTweakRounds;
+
                 float channelWeightsSq[4];
 
                 for (int ch = 0; ch < 4; ch++)
@@ -3507,17 +3514,26 @@ namespace CVTT
                     const int *shapeList;
                     int numShapesToEvaluate;
 
-                    if (flags & Flags::BC7_Use3Subsets)
+                    if (flags & Flags::BC7_EnablePartitioning)
                     {
-                        shapeList = BC7Data::g_shapeListAll;
-                        rgbInitialEPCollapseList = BC7Data::g_shapeListAll;
-                        numShapesToEvaluate = BC7Data::g_numShapesAll;
+                        if (flags & Flags::BC7_Enable3Subsets)
+                        {
+                            shapeList = BC7Data::g_shapeListAll;
+                            rgbInitialEPCollapseList = BC7Data::g_shapeListAll;
+                            numShapesToEvaluate = BC7Data::g_numShapesAll;
+                        }
+                        else
+                        {
+                            shapeList = BC7Data::g_shapeList12;
+                            rgbInitialEPCollapseList = BC7Data::g_shapeList12Collapse;
+                            numShapesToEvaluate = BC7Data::g_numShapes12;
+                        }
                     }
                     else
                     {
-                        shapeList = BC7Data::g_shapeList12;
-                        rgbInitialEPCollapseList = BC7Data::g_shapeList12Collapse;
-                        numShapesToEvaluate = BC7Data::g_numShapes12;
+                        shapeList = BC7Data::g_shapeList1;
+                        rgbInitialEPCollapseList = BC7Data::g_shapeList1Collapse;
+                        numShapesToEvaluate = BC7Data::g_numShapes1;
                     }
 
                     for (int shapeIter = 0; shapeIter < numShapesToEvaluate; shapeIter++)
@@ -3580,10 +3596,10 @@ namespace CVTT
 
                 for (uint16_t mode = 0; mode <= 7; mode++)
                 {
-                    if ((flags & Flags::BC7_ForceMode6) && mode != 6)
+                    if (!(flags & Flags::BC7_EnablePartitioning) && BC7Data::g_modes[mode].m_numSubsets != 1)
                         continue;
 
-                    if (!(flags & Flags::BC7_Use3Subsets) && BC7Data::g_modes[mode].m_numSubsets == 3)
+                    if (!(flags & Flags::BC7_Enable3Subsets) && BC7Data::g_modes[mode].m_numSubsets == 3)
                         continue;
 
                     if (mode == 4 || mode == 5)
@@ -3653,7 +3669,7 @@ namespace CVTT
 
                         assert(shapeCollapsedEvalIndex >= 0);
 
-                        for (int tweak = 0; tweak < NumTweakRounds; tweak++)
+                        for (int tweak = 0; tweak < numTweakRounds; tweak++)
                         {
                             MUInt15 baseEP[2][4];
 
@@ -3679,7 +3695,7 @@ namespace CVTT
                                     for (int ch = 0; ch < 4; ch++)
                                         ep[epi][ch] = baseEP[epi][ch];
 
-                                for (int refine = 0; refine < NumRefineRounds; refine++)
+                                for (int refine = 0; refine < numRefineRounds; refine++)
                                 {
                                     switch (mode)
                                     {
@@ -3722,7 +3738,7 @@ namespace CVTT
 
                                         MUInt15 index = indexSelector.SelectIndexLDR(floatPixels[px], rtn);
 
-                                        if (refine != NumRefineRounds - 1)
+                                        if (refine != numRefineRounds - 1)
                                             epRefiner.ContributeUnweighted(floatPixels[px], index);
 
                                         MUInt15 reconstructed[4];
@@ -3751,7 +3767,7 @@ namespace CVTT
                                             ParallelMath::ConditionalSet(temps.fragmentBestIndexes[shapeStart + pxi], shapeErrorBetter16, indexes[pxi]);
                                     }
 
-                                    if (refine != NumRefineRounds - 1)
+                                    if (refine != numRefineRounds - 1)
                                         epRefiner.GetRefinedEndpointsLDR(ep, rtn);
                                 } // refine
                             } // p
@@ -3807,7 +3823,7 @@ namespace CVTT
                 }
             }
 
-            static void TryDualPlane(uint32_t flags, const MUInt15 pixels[16][4], const MFloat floatPixels[16][4], const float channelWeights[4], WorkInfo& work, const ParallelMath::RoundTowardNearestForScope *rtn)
+            static void TryDualPlane(uint32_t flags, const MUInt15 pixels[16][4], const MFloat floatPixels[16][4], const float channelWeights[4], int numTweakRounds, int numRefineRounds, WorkInfo& work, const ParallelMath::RoundTowardNearestForScope *rtn)
             {
                 // TODO: These error calculations are not optimal for weight-by-alpha, but this routine needs to be mostly rewritten for that.
                 // The alpha/color solutions are co-dependent in that case, but a good way to solve it would probably be to
@@ -3815,8 +3831,16 @@ namespace CVTT
                 // - Separate alpha channel, then weighted RGB
                 // - Alpha+2 other channels, then the independent channel
 
-                if (flags & Flags::BC7_ForceMode6)
-                    return; // Mode 6 is not a dual-plane mode, skip it
+                if (!(flags & Flags::BC7_EnableDualPlane))
+                    return;
+
+                if (numRefineRounds < 1)
+                    numRefineRounds = 1;
+
+                if (numTweakRounds < 1)
+                    numTweakRounds = 1;
+                else if (numTweakRounds > MaxTweakRounds)
+                    numTweakRounds = MaxTweakRounds;
 
                 float channelWeightsSq[4];
                 for (int ch = 0; ch < 4; ch++)
@@ -3900,7 +3924,7 @@ namespace CVTT
                             for (int px = 0; px < 16; px++)
                                 bestRGBIndexes[px] = bestAlphaIndexes[px] = ParallelMath::MakeUInt15(0);
 
-                            for (int tweak = 0; tweak < NumTweakRounds; tweak++)
+                            for (int tweak = 0; tweak < numTweakRounds; tweak++)
                             {
                                 MUInt15 rgbEP[2][3];
                                 MUInt15 alphaEP[2];
@@ -3909,7 +3933,7 @@ namespace CVTT
 
                                 TweakAlpha(alphaRange, tweak, 1 << alphaPrec, alphaEP);
 
-                                for (int refine = 0; refine < NumRefineRounds; refine++)
+                                for (int refine = 0; refine < numRefineRounds; refine++)
                                 {
                                     if (mode == 4)
                                         CompressEndpoints4(rgbEP, alphaEP, rtn);
@@ -3943,7 +3967,7 @@ namespace CVTT
                                         MUInt15 rgbIndex = rgbIndexSelector.SelectIndexLDR(floatRotatedRGB[px], rtn);
                                         MUInt15 alphaIndex = alphaIndexSelector.SelectIndexLDR(floatPixels[px] + alphaChannel, rtn);
 
-                                        if (refine != NumRefineRounds - 1)
+                                        if (refine != numRefineRounds - 1)
                                         {
                                             rgbRefiner.ContributeUnweighted(floatRotatedRGB[px], rgbIndex);
                                             alphaRefiner.ContributeUnweighted(floatPixels[px] + alphaChannel, alphaIndex);
@@ -3985,7 +4009,7 @@ namespace CVTT
                                         ParallelMath::ConditionalSet(bestEP[ep][3], alphaBetterInt16, alphaEP[ep]);
                                     }
 
-                                    if (refine != NumRefineRounds - 1)
+                                    if (refine != numRefineRounds - 1)
                                     {
                                         rgbRefiner.GetRefinedEndpointsLDR(rgbEP, rtn);
 
@@ -4031,7 +4055,7 @@ namespace CVTT
                 b = temp;
             }
 
-            static void Pack(uint32_t flags, const InputBlockU8* inputs, uint8_t* packedBlocks, const float channelWeights[4])
+            static void Pack(uint32_t flags, const InputBlockU8* inputs, uint8_t* packedBlocks, const float channelWeights[4], int numTweakRounds, int numRefineRounds)
             {
                 MUInt15 pixels[16][4];
                 MFloat floatPixels[16][4];
@@ -4055,8 +4079,8 @@ namespace CVTT
 
                 {
                     ParallelMath::RoundTowardNearestForScope rtn;
-                    TrySinglePlane(flags, pixels, floatPixels, channelWeights, work, &rtn);
-                    TryDualPlane(flags, pixels, floatPixels, channelWeights, work, &rtn);
+                    TrySinglePlane(flags, pixels, floatPixels, channelWeights, numTweakRounds, numRefineRounds, work, &rtn);
+                    TryDualPlane(flags, pixels, floatPixels, channelWeights, numTweakRounds, numRefineRounds, work, &rtn);
                 }
 
                 for (int block = 0; block < ParallelMath::ParallelSize; block++)
@@ -4274,8 +4298,8 @@ namespace CVTT
             typedef ParallelMath::SInt32 MSInt32;
             typedef ParallelMath::UInt31 MUInt31;
 
-            static const int NumTweakRounds = 4;
-            static const int NumRefineRounds = 3;
+            static const int MaxTweakRounds = 4;
+            static const int MaxRefineRounds = 3;
 
             static MSInt16 QuantizeSingleEndpointElementSigned(const MSInt16 &elem2CL, int precision, const ParallelMath::RoundUpForScope* ru)
             {
@@ -4517,8 +4541,18 @@ namespace CVTT
                 outIsLegal = allLegal;
             }
 
-            static void Pack(uint32_t flags, const InputBlockF16* inputs, uint8_t* packedBlocks, const float channelWeights[4], bool isSigned)
+            static void Pack(uint32_t flags, const InputBlockF16* inputs, uint8_t* packedBlocks, const float channelWeights[4], bool isSigned, int numTweakRounds, int numRefineRounds)
             {
+                if (numTweakRounds < 1)
+                    numTweakRounds = 1;
+                else if (numTweakRounds > MaxTweakRounds)
+                    numTweakRounds = MaxTweakRounds;
+
+                if (numRefineRounds < 1)
+                    numRefineRounds = 1;
+                else if (numRefineRounds > MaxRefineRounds)
+                    numRefineRounds = MaxRefineRounds;
+
                 bool fastIndexing = (flags & CVTT::Flags::BC6H_FastIndexing);
                 float channelWeightsSq[3];
 
@@ -4636,28 +4670,31 @@ namespace CVTT
                         {
                             int partitionMask = partitioned ? BC7Data::g_partitionMap[p] : 0;
 
-                            const int NumMetaRounds = NumTweakRounds * NumRefineRounds;
+                            const int MaxMetaRounds = MaxTweakRounds * MaxRefineRounds;
 
-                            MAInt16 metaEndPointsQuantized[NumMetaRounds][2][2][3];
-                            MUInt15 metaIndexes[NumMetaRounds][16];
-                            MFloat metaError[NumMetaRounds][2];
+                            MAInt16 metaEndPointsQuantized[MaxMetaRounds][2][2][3];
+                            MUInt15 metaIndexes[MaxMetaRounds][16];
+                            MFloat metaError[MaxMetaRounds][2];
 
-                            bool roundValid[NumMetaRounds][2];
+                            bool roundValid[MaxMetaRounds][2];
 
-                            for (int r = 0; r < NumMetaRounds; r++)
+                            for (int r = 0; r < MaxMetaRounds; r++)
                                 for (int subset = 0; subset < 2; subset++)
                                     roundValid[r][subset] = true;
 
                             for (int subset = 0; subset < numSubsets; subset++)
                             {
-                                for (int tweak = 0; tweak < NumTweakRounds; tweak++)
+                                for (int tweak = 0; tweak < MaxTweakRounds; tweak++)
                                 {
                                     EndpointRefiner<3> refiners[2];
 
                                     bool abortRemainingRefines = false;
-                                    for (int refinePass = 0; refinePass < NumRefineRounds; refinePass++)
+                                    for (int refinePass = 0; refinePass < MaxRefineRounds; refinePass++)
                                     {
-                                        int metaRound = tweak * NumRefineRounds + refinePass;
+                                        int metaRound = tweak * MaxRefineRounds + refinePass;
+
+                                        if (tweak >= numTweakRounds || refinePass >= numRefineRounds)
+                                            abortRemainingRefines = true;
 
                                         if (abortRemainingRefines)
                                         {
@@ -4743,7 +4780,7 @@ namespace CVTT
 
                                                 subsetError = subsetError + (fastIndexing ? BCCommon::ComputeErrorHDRFast<3>(flags, reconstructed, pixels[px], channelWeightsSq) : BCCommon::ComputeErrorHDRSlow<3>(flags, reconstructed, pixels[px], channelWeightsSq));
 
-                                                if (refinePass != NumRefineRounds - 1)
+                                                if (refinePass != numRefineRounds - 1)
                                                     refiners[subset].ContributeUnweighted(floatPixels2CL[px], index);
                                             }
                                         }
@@ -4754,8 +4791,8 @@ namespace CVTT
                             }
 
                             // Now we have a bunch of attempts, but not all of them will fit in the delta coding scheme
-                            int numMeta1 = partitioned ? NumMetaRounds : 1;
-                            for (int meta0 = 0; meta0 < NumMetaRounds; meta0++)
+                            int numMeta1 = partitioned ? MaxMetaRounds : 1;
+                            for (int meta0 = 0; meta0 < MaxMetaRounds; meta0++)
                             {
                                 if (!roundValid[meta0][0])
                                     continue;
@@ -4916,9 +4953,6 @@ namespace CVTT
             typedef ParallelMath::UInt15 MUInt15;
             typedef ParallelMath::UInt16 MUInt16;
             typedef ParallelMath::SInt32 MSInt32;
-
-            static const int NumRGBRefineRounds = 2;
-            static const int NumAlphaRefineRounds = 8;
 
             static void Init(MFloat& error)
             {
@@ -5083,8 +5117,14 @@ namespace CVTT
                 }
             }
 
-            static void PackInterpolatedAlpha(uint32_t flags, const InputBlockU8* inputs, int inputChannel, uint8_t* packedBlocks, size_t packedBlockStride, bool isSigned)
+            static void PackInterpolatedAlpha(uint32_t flags, const InputBlockU8* inputs, int inputChannel, uint8_t* packedBlocks, size_t packedBlockStride, bool isSigned, int maxTweakRounds, int numRefineRounds)
             {
+                if (maxTweakRounds < 1)
+                    maxTweakRounds = 1;
+
+                if (numRefineRounds < 1)
+                    numRefineRounds = 1;
+
                 ParallelMath::RoundTowardNearestForScope rtn;
 
                 float oneWeight[1] = { 1.0f };
@@ -5144,13 +5184,17 @@ namespace CVTT
 
                     UnfinishedEndpoints<1> ufep = UnfinishedEndpoints<1>(base, offset);
 
-                    for (int tweak = 0; tweak < BCCommon::TweakRoundsForRange(8); tweak++)
+                    int numTweakRounds = BCCommon::TweakRoundsForRange(8);
+                    if (numTweakRounds > maxTweakRounds)
+                        numTweakRounds = maxTweakRounds;
+
+                    for (int tweak = 0; tweak < numTweakRounds; tweak++)
                     {
                         MUInt15 ep[2][1];
 
                         ufep.FinishLDR(tweak, 8, ep[0], ep[1]);
 
-                        for (int refinePass = 0; refinePass < NumAlphaRefineRounds; refinePass++)
+                        for (int refinePass = 0; refinePass < numRefineRounds; refinePass++)
                         {
                             EndpointRefiner<1> refiner;
                             refiner.Init(8, oneWeight);
@@ -5174,7 +5218,7 @@ namespace CVTT
                                 indexSelector.ReconstructLDR(index, &reconstructedPixel);
                                 error = error + BCCommon::ComputeErrorLDR<1>(flags, &reconstructedPixel, &pixels[px], oneWeight);
 
-                                if (refinePass != NumAlphaRefineRounds - 1)
+                                if (refinePass != numRefineRounds - 1)
                                     refiner.ContributeUnweighted(&floatPixels[px], index);
 
                                 indexes[px] = index;
@@ -5194,7 +5238,7 @@ namespace CVTT
                                     ParallelMath::ConditionalSet(bestEP[epi], errorBetter16, ep[epi][0]);
                             }
 
-                            if (refinePass != NumAlphaRefineRounds - 1)
+                            if (refinePass != numRefineRounds - 1)
                                 refiner.GetRefinedEndpointsLDR(ep, &rtn);
                         }
                     }
@@ -5292,13 +5336,17 @@ namespace CVTT
 
                             UnfinishedEndpoints<1> ufep = UnfinishedEndpoints<1>(base, offset);
 
-                            for (int tweak = 0; tweak < BCCommon::TweakRoundsForRange(6); tweak++)
+                            int numTweakRounds = BCCommon::TweakRoundsForRange(6);
+                            if (numTweakRounds > maxTweakRounds)
+                                numTweakRounds = maxTweakRounds;
+
+                            for (int tweak = 0; tweak < numTweakRounds; tweak++)
                             {
                                 MUInt15 ep[2][1];
 
                                 ufep.FinishLDR(tweak, 8, ep[0], ep[1]);
 
-                                for (int refinePass = 0; refinePass < NumAlphaRefineRounds; refinePass++)
+                                for (int refinePass = 0; refinePass < numRefineRounds; refinePass++)
                                 {
                                     EndpointRefiner<1> refiner;
                                     refiner.Init(6, oneWeight);
@@ -5335,14 +5383,14 @@ namespace CVTT
 
                                         if (ParallelMath::AllSet(selectedIndexBetter))
                                         {
-                                            if (refinePass != NumAlphaRefineRounds - 1)
+                                            if (refinePass != numRefineRounds - 1)
                                                 refiner.ContributeUnweighted(&floatPixels[px], selectedIndex);
                                         }
                                         else
                                         {
                                             MFloat refineWeight = ParallelMath::Select(selectedIndexBetter, ParallelMath::MakeFloat(1.0f), ParallelMath::MakeFloatZero());
 
-                                            if (refinePass != NumAlphaRefineRounds - 1)
+                                            if (refinePass != numRefineRounds - 1)
                                                 refiner.Contribute(&floatPixels[px], selectedIndex, refineWeight);
                                         }
 
@@ -5368,7 +5416,7 @@ namespace CVTT
                                             ParallelMath::ConditionalSet(bestEP[epi], errorBetter16, ep[epi][0]);
                                     }
 
-                                    if (refinePass != NumAlphaRefineRounds - 1)
+                                    if (refinePass != numRefineRounds - 1)
                                         refiner.GetRefinedEndpointsLDR(ep, &rtn);
                                 }
                             }
@@ -5442,9 +5490,15 @@ namespace CVTT
                 }
             }
 
-            static void PackRGB(uint32_t flags, const InputBlockU8* inputs, uint8_t* packedBlocks, size_t packedBlockStride, const float channelWeights[4], bool alphaTest, float alphaThreshold, bool exhaustive)
+            static void PackRGB(uint32_t flags, const InputBlockU8* inputs, uint8_t* packedBlocks, size_t packedBlockStride, const float channelWeights[4], bool alphaTest, float alphaThreshold, bool exhaustive, int maxTweakRounds, int numRefineRounds)
             {
                 ParallelMath::RoundTowardNearestForScope rtn;
+
+                if (numRefineRounds < 1)
+                    numRefineRounds = 1;
+
+                if (maxTweakRounds < 1)
+                    maxTweakRounds = 1;
 
                 EndpointSelector<3, 8> endpointSelector;
 
@@ -5642,20 +5696,23 @@ namespace CVTT
                     for (int range = minRange; range <= 4; range++)
                     {
                         int tweakRounds = BCCommon::TweakRoundsForRange(range);
+                        if (tweakRounds > maxTweakRounds)
+                            tweakRounds = maxTweakRounds;
+
                         for (int tweak = 0; tweak < tweakRounds; tweak++)
                         {
                             MUInt15 endPoints[2][3];
 
                             ufep.FinishLDR(tweak, range, endPoints[0], endPoints[1]);
 
-                            for (int refine = 0; refine < NumRGBRefineRounds; refine++)
+                            for (int refine = 0; refine < numRefineRounds; refine++)
                             {
                                 EndpointRefiner<3> refiner;
                                 refiner.Init(range, channelWeights);
 
                                 TestEndpoints(flags, pixels, floatPixels, endPoints, range, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, &refiner, &rtn);
 
-                                if (refine != NumRGBRefineRounds - 1)
+                                if (refine != numRefineRounds - 1)
                                     refiner.GetRefinedEndpointsLDR(endPoints, &rtn);
                             }
                         }
@@ -5785,7 +5842,7 @@ namespace CVTT
 
             for (size_t blockBase = 0; blockBase < CVTT::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                BC7Computer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights);
+                BC7Computer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, options.seedPoints, options.refineRoundsBC7);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
@@ -5800,7 +5857,7 @@ namespace CVTT
 
             for (size_t blockBase = 0; blockBase < CVTT::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                BC6HComputer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, false);
+                BC6HComputer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, false, options.seedPoints, options.refineRoundsBC6H);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
@@ -5815,7 +5872,7 @@ namespace CVTT
 
             for (size_t blockBase = 0; blockBase < CVTT::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                BC6HComputer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, true);
+                BC6HComputer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, true, options.seedPoints, options.refineRoundsBC6H);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
@@ -5830,7 +5887,7 @@ namespace CVTT
 
             for (size_t blockBase = 0; blockBase < CVTT::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC, 8, channelWeights, true, options.threshold, (options.flags & Flags::S3TC_Exhaustive) != 0);
+                S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC, 8, channelWeights, true, options.threshold, (options.flags & Flags::S3TC_Exhaustive) != 0, options.seedPoints, options.refineRoundsS3TC);
                 pBC += ParallelMath::ParallelSize * 8;
             }
         }
@@ -5845,7 +5902,7 @@ namespace CVTT
 
             for (size_t blockBase = 0; blockBase < NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC + 8, 16, channelWeights, false, 1.0f, (options.flags & Flags::S3TC_Exhaustive) != 0);
+                S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC + 8, 16, channelWeights, false, 1.0f, (options.flags & Flags::S3TC_Exhaustive) != 0, options.seedPoints, options.refineRoundsS3TC);
                 S3TCComputer::PackExplicitAlpha(options.flags, pBlocks + blockBase, 3, pBC, 16);
                 pBC += ParallelMath::ParallelSize * 16;
             }
@@ -5861,8 +5918,8 @@ namespace CVTT
 
             for (size_t blockBase = 0; blockBase < NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC + 8, 16, channelWeights, false, 1.0f, (options.flags & Flags::S3TC_Exhaustive) != 0);
-                S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 3, pBC, 16, false);
+                S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC + 8, 16, channelWeights, false, 1.0f, (options.flags & Flags::S3TC_Exhaustive) != 0, options.seedPoints, options.refineRoundsS3TC);
+                S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 3, pBC, 16, false, options.seedPoints, options.refineRoundsIIC);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
@@ -5877,7 +5934,7 @@ namespace CVTT
 
             for (size_t blockBase = 0; blockBase < NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 0, pBC, 8, false);
+                S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 0, pBC, 8, false, options.seedPoints, options.refineRoundsIIC);
                 pBC += ParallelMath::ParallelSize * 8;
             }
         }
@@ -5895,7 +5952,7 @@ namespace CVTT
                 InputBlockU8 inputBlocks[ParallelMath::ParallelSize];
                 BiasSignedInput(inputBlocks, pBlocks + blockBase);
 
-                S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 0, pBC, 8, true);
+                S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 0, pBC, 8, true, options.seedPoints, options.refineRoundsIIC);
                 pBC += ParallelMath::ParallelSize * 8;
             }
         }
@@ -5910,8 +5967,8 @@ namespace CVTT
 
             for (size_t blockBase = 0; blockBase < NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 0, pBC, 16, false);
-                S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 1, pBC + 8, 16, false);
+                S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 0, pBC, 16, false, options.seedPoints, options.refineRoundsIIC);
+                S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 1, pBC + 8, 16, false, options.seedPoints, options.refineRoundsIIC);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
@@ -5929,8 +5986,8 @@ namespace CVTT
                 InputBlockU8 inputBlocks[ParallelMath::ParallelSize];
                 BiasSignedInput(inputBlocks, pBlocks + blockBase);
 
-                S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 0, pBC, 16, true);
-                S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 1, pBC + 8, 16, true);
+                S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 0, pBC, 16, true, options.seedPoints, options.refineRoundsIIC);
+                S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 1, pBC + 8, 16, true, options.seedPoints, options.refineRoundsIIC);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
