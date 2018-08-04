@@ -20,11 +20,15 @@ namespace CVTT
         // Exhaustive search RGB orderings when encoding BC1-BC3 (much slower, better quality)
         const uint32_t S3TC_Exhaustive          = 0x08;
 
+        // Penalizes distant endpoints, improving quality on less-accurate GPU decoders.
+        const uint32_t S3TC_Paranoid            = 0x10;
+
         // Uniform color channel importance
-        const uint32_t Uniform                  = 0x10;
+        const uint32_t Uniform                  = 0x20;
 
         // Use fast indexing in BC6H encoder (faster, worse quality)
-        const uint32_t BC6H_FastIndexing        = 0x20;
+        const uint32_t BC6H_FastIndexing        = 0x40;
+
     }
 
     const unsigned int NumParallelBlocks = 8;
@@ -46,7 +50,7 @@ namespace CVTT
         int seedPoints;         // Number of seed points (min 1, max 4)
 
         Options()
-            : flags(Flags::BC7_EnablePartitioning | Flags::BC7_EnableDualPlane)
+            : flags(Flags::BC7_EnablePartitioning | Flags::BC7_EnableDualPlane | Flags::S3TC_Paranoid)
             , threshold(0.5f)
             , redWeight(0.2125f / 0.7154f)
             , greenWeight(1.0f)
