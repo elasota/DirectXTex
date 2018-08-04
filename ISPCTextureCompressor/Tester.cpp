@@ -7,8 +7,36 @@
 
 int main(int argc, const char** argv)
 {
-    if (argc != 3)
+    if (argc < 3)
         return -1;
+
+    int quality = 5;
+    int alpha = 1;
+    for (int i = 3; i < argc; i++)
+    {
+        if (!strcmp(argv[i], "-q"))
+        {
+            i++;
+            if (i == argc)
+            {
+                fprintf(stderr, "No parameter for -q");
+                exit(-1);
+            }
+
+            quality = atoi(argv[i]);
+        }
+        else if (!strcmp(argv[i], "-a"))
+        {
+            i++;
+            if (i == argc)
+            {
+                fprintf(stderr, "No parameter for -a");
+                exit(-1);
+            }
+
+            alpha = atoi(argv[i]);
+        }
+    }
 
     int w, h, channels;
 
@@ -21,7 +49,50 @@ int main(int argc, const char** argv)
     unsigned char* compressedBlocks = new unsigned char[compressedSize];
 
     bc7_enc_settings settings;
-    GetProfile_alpha_slow(&settings);
+    if (alpha)
+    {
+        switch (quality)
+        {
+        case 1:
+            GetProfile_alpha_ultrafast(&settings);
+            break;
+        case 2:
+            GetProfile_alpha_veryfast(&settings);
+            break;
+        case 3:
+            GetProfile_alpha_fast(&settings);
+            break;
+        case 4:
+            GetProfile_alpha_basic(&settings);
+            break;
+        case 5:
+        default:
+            GetProfile_alpha_slow(&settings);
+            break;
+        }
+    }
+    else
+    {
+        switch (quality)
+        {
+        case 1:
+            GetProfile_ultrafast(&settings);
+            break;
+        case 2:
+            GetProfile_veryfast(&settings);
+            break;
+        case 3:
+            GetProfile_fast(&settings);
+            break;
+        case 4:
+            GetProfile_basic(&settings);
+            break;
+        case 5:
+        default:
+            GetProfile_slow(&settings);
+            break;
+        }
+    }
 
     rgba_surface surface;
     surface.width = w;
