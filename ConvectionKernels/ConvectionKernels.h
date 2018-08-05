@@ -9,26 +9,39 @@ namespace CVTT
     namespace Flags
     {
         // Enable partitioned modes in BC7 encoding (slower, better quality)
-        const uint32_t BC7_EnablePartitioning   = 0x01;
+        const uint32_t BC7_EnablePartitioning   = 0x001;
 
         // Enable 3-partition modes in BC7 encoding (slower, better quality, requires BC7_EnablePartitioning)
-        const uint32_t BC7_Enable3Subsets       = 0x02;
+        const uint32_t BC7_Enable3Subsets       = 0x002;
 
         // Enable dual-plane modes in BC7 encoding (slower, better quality)
-        const uint32_t BC7_EnableDualPlane      = 0x04;
+        const uint32_t BC7_EnableDualPlane      = 0x004;
+
+        // Use fast indexing in BC7 encoding (about 2x faster, slightly worse quality)
+        const uint32_t BC7_FastIndexing         = 0x008;
+
+        // Try precomputed single-color lookups where applicable (slightly slower, small quality increase on specific blocks)
+        const uint32_t BC7_TrySingleColor       = 0x010;
+
+        // Use fast indexing in HDR formats (faster, worse quality)
+        const uint32_t BC6H_FastIndexing        = 0x020;
 
         // Exhaustive search RGB orderings when encoding BC1-BC3 (much slower, better quality)
-        const uint32_t S3TC_Exhaustive          = 0x08;
+        const uint32_t S3TC_Exhaustive          = 0x040;
 
-        // Penalizes distant endpoints, improving quality on less-accurate GPU decoders.
-        const uint32_t S3TC_Paranoid            = 0x10;
+        // Penalize distant endpoints, improving quality on inaccurate GPU decoders
+        const uint32_t S3TC_Paranoid            = 0x080;
 
         // Uniform color channel importance
-        const uint32_t Uniform                  = 0x20;
+        const uint32_t Uniform                  = 0x100;
 
-        // Use fast indexing in BC6H encoder (faster, worse quality)
-        const uint32_t BC6H_FastIndexing        = 0x40;
-
+        // Misc useful default flag combinations
+        const uint32_t Fastest = (BC6H_FastIndexing | S3TC_Paranoid);
+        const uint32_t Faster = (BC7_EnableDualPlane | BC6H_FastIndexing | S3TC_Paranoid);
+        const uint32_t Fast = (BC7_EnablePartitioning | BC7_EnableDualPlane | BC7_FastIndexing | S3TC_Paranoid);
+        const uint32_t Default = (BC7_EnablePartitioning | BC7_EnableDualPlane | BC7_Enable3Subsets | BC7_FastIndexing | S3TC_Paranoid);
+        const uint32_t Better = (BC7_EnablePartitioning | BC7_EnableDualPlane | BC7_Enable3Subsets | S3TC_Paranoid | S3TC_Exhaustive);
+        const uint32_t Ultra = (BC7_EnablePartitioning | BC7_EnableDualPlane | BC7_Enable3Subsets | BC7_TrySingleColor | S3TC_Paranoid | S3TC_Exhaustive);
     }
 
     const unsigned int NumParallelBlocks = 8;
@@ -50,7 +63,7 @@ namespace CVTT
         int seedPoints;         // Number of seed points (min 1, max 4)
 
         Options()
-            : flags(Flags::BC7_EnablePartitioning | Flags::BC7_EnableDualPlane | Flags::S3TC_Paranoid)
+            : flags(Flags::Default)
             , threshold(0.5f)
             , redWeight(0.2125f / 0.7154f)
             , greenWeight(1.0f)

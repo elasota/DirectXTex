@@ -29,6 +29,7 @@ Licensed under the MIT License.
 http://go.microsoft.com/fwlink/?LinkId=248926
 */
 #include "ConvectionKernels.h"
+#include "ConvectionKernels_BC7_SingleColor.h"
 
 #if (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(_M_X64)
 #define CVTT_USE_SSE2
@@ -47,7 +48,1536 @@ http://go.microsoft.com/fwlink/?LinkId=248926
 
 namespace CVTT
 {
-    namespace
+#ifdef CVTT_USE_SSE2
+    // SSE2 version
+    struct ParallelMath
+    {
+        typedef uint16_t ScalarUInt16;
+        typedef int16_t ScalarSInt16;
+
+        template<unsigned int TRoundingMode>
+        struct RoundForScope
+        {
+            unsigned int m_oldCSR;
+
+            RoundForScope()
+            {
+                m_oldCSR = _mm_getcsr();
+                _mm_setcsr((m_oldCSR & ~_MM_ROUND_MASK) | (TRoundingMode));
+            }
+
+            ~RoundForScope()
+            {
+                _mm_setcsr(m_oldCSR);
+            }
+        };
+
+        struct RoundTowardZeroForScope : RoundForScope<_MM_ROUND_TOWARD_ZERO>
+        {
+        };
+
+        struct RoundTowardNearestForScope : RoundForScope<_MM_ROUND_NEAREST>
+        {
+        };
+
+        struct RoundUpForScope : RoundForScope<_MM_ROUND_UP>
+        {
+        };
+
+        struct RoundDownForScope : RoundForScope<_MM_ROUND_DOWN>
+        {
+        };
+
+        static const int ParallelSize = 8;
+
+        enum Int16Subtype
+        {
+            IntSubtype_Signed,
+            IntSubtype_UnsignedFull,
+            IntSubtype_UnsignedTruncated,
+            IntSubtype_Abstract,
+        };
+
+        template<int TSubtype>
+        struct VInt16
+        {
+            __m128i m_value;
+
+            inline VInt16 operator+(int16_t other) const
+            {
+                VInt16 result;
+                result.m_value = _mm_add_epi16(m_value, _mm_set1_epi16(static_cast<int16_t>(other)));
+                return result;
+            }
+
+            inline VInt16 operator+(const VInt16 &other) const
+            {
+                VInt16 result;
+                result.m_value = _mm_add_epi16(m_value, other.m_value);
+                return result;
+            }
+
+            inline VInt16 operator|(const VInt16 &other) const
+            {
+                VInt16 result;
+                result.m_value = _mm_or_si128(m_value, other.m_value);
+                return result;
+            }
+
+            inline VInt16 operator&(const VInt16 &other) const
+            {
+                VInt16 result;
+                result.m_value = _mm_and_si128(m_value, other.m_value);
+                return result;
+            }
+
+            inline VInt16 operator-(const VInt16 &other) const
+            {
+                VInt16 result;
+                result.m_value = _mm_sub_epi16(m_value, other.m_value);
+                return result;
+            }
+
+            inline VInt16 operator<<(int bits) const
+            {
+                VInt16 result;
+                result.m_value = _mm_slli_epi16(m_value, bits);
+                return result;
+            }
+        };
+
+        typedef VInt16<IntSubtype_Signed> SInt16;
+        typedef VInt16<IntSubtype_UnsignedFull> UInt16;
+        typedef VInt16<IntSubtype_UnsignedTruncated> UInt15;
+        typedef VInt16<IntSubtype_Abstract> AInt16;
+
+        template<int TSubtype>
+        struct VInt32
+        {
+            __m128i m_values[2];
+
+            inline VInt32 operator+(const VInt32& other) const
+            {
+                VInt32 result;
+                result.m_values[0] = _mm_add_epi32(m_values[0], other.m_values[0]);
+                result.m_values[1] = _mm_add_epi32(m_values[1], other.m_values[1]);
+                return result;
+            }
+
+            inline VInt32 operator-(const VInt32& other) const
+            {
+                VInt32 result;
+                result.m_values[0] = _mm_sub_epi32(m_values[0], other.m_values[0]);
+                result.m_values[1] = _mm_sub_epi32(m_values[1], other.m_values[1]);
+                return result;
+            }
+
+            inline VInt32 operator<<(const int other) const
+            {
+                VInt32 result;
+                result.m_values[0] = _mm_slli_epi32(m_values[0], other);
+                result.m_values[1] = _mm_slli_epi32(m_values[1], other);
+                return result;
+            }
+        };
+
+        typedef VInt32<IntSubtype_Signed> SInt32;
+        typedef VInt32<IntSubtype_UnsignedTruncated> UInt31;
+        typedef VInt32<IntSubtype_UnsignedFull> UInt32;
+        typedef VInt32<IntSubtype_Abstract> AInt32;
+
+        template<class TTargetType>
+        struct LosslessCast
+        {
+#ifdef CVTT_PERMIT_ALIASING
+            template<int TSrcSubtype>
+            static const TTargetType& Cast(const VInt32<TSrcSubtype> &src)
+            {
+                return reinterpret_cast<VInt32<TSubtype>&>(src);
+            }
+
+            template<int TSrcSubtype>
+            static const TTargetType& Cast(const VInt16<TSrcSubtype> &src)
+            {
+                return reinterpret_cast<VInt16<TSubtype>&>(src);
+            }
+#else
+            template<int TSrcSubtype>
+            static TTargetType Cast(const VInt32<TSrcSubtype> &src)
+            {
+                TTargetType result;
+                result.m_values[0] = src.m_values[0];
+                result.m_values[1] = src.m_values[1];
+                return result;
+            }
+
+            template<int TSrcSubtype>
+            static TTargetType Cast(const VInt16<TSrcSubtype> &src)
+            {
+                TTargetType result;
+                result.m_value = src.m_value;
+                return result;
+            }
+#endif
+        };
+
+        struct Int64
+        {
+            __m128i m_values[4];
+        };
+
+        struct Float
+        {
+            __m128 m_values[2];
+
+            inline Float operator+(const Float& other) const
+            {
+                Float result;
+                result.m_values[0] = _mm_add_ps(m_values[0], other.m_values[0]);
+                result.m_values[1] = _mm_add_ps(m_values[1], other.m_values[1]);
+                return result;
+            }
+
+            inline Float operator+(float other) const
+            {
+                Float result;
+                result.m_values[0] = _mm_add_ps(m_values[0], _mm_set1_ps(other));
+                result.m_values[1] = _mm_add_ps(m_values[1], _mm_set1_ps(other));
+                return result;
+            }
+
+            inline Float operator-(const Float& other) const
+            {
+                Float result;
+                result.m_values[0] = _mm_sub_ps(m_values[0], other.m_values[0]);
+                result.m_values[1] = _mm_sub_ps(m_values[1], other.m_values[1]);
+                return result;
+            }
+
+            inline Float operator-() const
+            {
+                Float result;
+                result.m_values[0] = _mm_sub_ps(_mm_setzero_ps(), m_values[0]);
+                result.m_values[1] = _mm_sub_ps(_mm_setzero_ps(), m_values[1]);
+                return result;
+            }
+
+            inline Float operator*(const Float& other) const
+            {
+                Float result;
+                result.m_values[0] = _mm_mul_ps(m_values[0], other.m_values[0]);
+                result.m_values[1] = _mm_mul_ps(m_values[1], other.m_values[1]);
+                return result;
+            }
+
+            inline Float operator*(float other) const
+            {
+                Float result;
+                result.m_values[0] = _mm_mul_ps(m_values[0], _mm_set1_ps(other));
+                result.m_values[1] = _mm_mul_ps(m_values[1], _mm_set1_ps(other));
+                return result;
+            }
+
+            inline Float operator/(const Float& other) const
+            {
+                Float result;
+                result.m_values[0] = _mm_div_ps(m_values[0], other.m_values[0]);
+                result.m_values[1] = _mm_div_ps(m_values[1], other.m_values[1]);
+                return result;
+            }
+
+            inline Float operator/(float other) const
+            {
+                Float result;
+                result.m_values[0] = _mm_div_ps(m_values[0], _mm_set1_ps(other));
+                result.m_values[1] = _mm_div_ps(m_values[1], _mm_set1_ps(other));
+                return result;
+            }
+        };
+
+        struct Int16CompFlag
+        {
+            __m128i m_value;
+
+            inline Int16CompFlag operator&(const Int16CompFlag& other) const
+            {
+                Int16CompFlag result;
+                result.m_value = _mm_and_si128(m_value, other.m_value);
+                return result;
+            }
+
+            inline Int16CompFlag operator|(const Int16CompFlag& other) const
+            {
+                Int16CompFlag result;
+                result.m_value = _mm_or_si128(m_value, other.m_value);
+                return result;
+            }
+        };
+
+        struct FloatCompFlag
+        {
+            __m128 m_values[2];
+        };
+
+        template<int TSubtype>
+        static VInt16<TSubtype> AbstractAdd(const VInt16<TSubtype> &a, const VInt16<TSubtype> &b)
+        {
+            VInt16<TSubtype> result;
+            result.m_value = _mm_add_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        template<int TSubtype>
+        static VInt16<TSubtype> AbstractSubtract(const VInt16<TSubtype> &a, const VInt16<TSubtype> &b)
+        {
+            VInt16<TSubtype> result;
+            result.m_value = _mm_sub_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static Float Select(FloatCompFlag flag, Float a, Float b)
+        {
+            Float result;
+            for (int i = 0; i < 2; i++)
+                result.m_values[i] = _mm_or_ps(_mm_and_ps(flag.m_values[i], a.m_values[i]), _mm_andnot_ps(flag.m_values[i], b.m_values[i]));
+            return result;
+        }
+
+        template<int TSubtype>
+        static VInt16<TSubtype> Select(Int16CompFlag flag, const VInt16<TSubtype> &a, const VInt16<TSubtype> &b)
+        {
+            VInt16<TSubtype> result;
+            result.m_value = _mm_or_si128(_mm_and_si128(flag.m_value, a.m_value), _mm_andnot_si128(flag.m_value, b.m_value));
+            return result;
+        }
+
+        template<int TSubtype>
+        static VInt16<TSubtype> SelectOrZero(Int16CompFlag flag, const VInt16<TSubtype> &a)
+        {
+            VInt16<TSubtype> result;
+            result.m_value = _mm_and_si128(flag.m_value, a.m_value);
+            return result;
+        }
+
+        template<int TSubtype>
+        static void ConditionalSet(VInt16<TSubtype>& dest, Int16CompFlag flag, const VInt16<TSubtype> src)
+        {
+            dest.m_value = _mm_or_si128(_mm_andnot_si128(flag.m_value, dest.m_value), _mm_and_si128(flag.m_value, src.m_value));
+        }
+
+        static SInt16 ConditionalNegate(const Int16CompFlag &flag, const SInt16& v)
+        {
+            SInt16 result;
+            result.m_value = _mm_add_epi16(_mm_xor_si128(flag.m_value, v.m_value), _mm_srli_epi16(flag.m_value, 15));
+            return result;
+        }
+
+        template<int TSubtype>
+        static void NotConditionalSet(VInt16<TSubtype>& dest, Int16CompFlag flag, const VInt16<TSubtype> src)
+        {
+            dest.m_value = _mm_or_si128(_mm_and_si128(flag.m_value, dest.m_value), _mm_andnot_si128(flag.m_value, src.m_value));
+        }
+
+        static void ConditionalSet(Float& dest, FloatCompFlag flag, const Float src)
+        {
+            for (int i = 0; i < 2; i++)
+                dest.m_values[i] = _mm_or_ps(_mm_andnot_ps(flag.m_values[i], dest.m_values[i]), _mm_and_ps(flag.m_values[i], src.m_values[i]));
+        }
+
+        static void NotConditionalSet(Float& dest, FloatCompFlag flag, const Float src)
+        {
+            for (int i = 0; i < 2; i++)
+                dest.m_values[i] = _mm_or_ps(_mm_and_ps(flag.m_values[i], dest.m_values[i]), _mm_andnot_ps(flag.m_values[i], src.m_values[i]));
+        }
+
+        static void MakeSafeDenominator(Float& v)
+        {
+            ConditionalSet(v, Equal(v, MakeFloatZero()), MakeFloat(1.0f));
+        }
+
+        static SInt16 TruncateToPrecisionSigned(const SInt16 &v, int precision)
+        {
+            int lostBits = 16 - precision;
+            if (lostBits == 0)
+                return v;
+
+            SInt16 result;
+            result.m_value = _mm_srai_epi16(_mm_slli_epi16(v.m_value, lostBits), lostBits);
+            return result;
+        }
+
+        static UInt16 TruncateToPrecisionUnsigned(const UInt16 &v, int precision)
+        {
+            int lostBits = 16 - precision;
+            if (lostBits == 0)
+                return v;
+
+            UInt16 result;
+            result.m_value = _mm_srli_epi16(_mm_slli_epi16(v.m_value, lostBits), lostBits);
+            return result;
+        }
+
+        static UInt16 Min(const UInt16 &a, const UInt16 &b)
+        {
+            __m128i bitFlip = _mm_set1_epi16(-32768);
+
+            UInt16 result;
+            result.m_value = _mm_xor_si128(_mm_min_epi16(_mm_xor_si128(a.m_value, bitFlip), _mm_xor_si128(b.m_value, bitFlip)), bitFlip);
+            return result;
+        }
+
+        static SInt16 Min(const SInt16 &a, const SInt16 &b)
+        {
+            SInt16 result;
+            result.m_value = _mm_min_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static UInt15 Min(const UInt15 &a, const UInt15 &b)
+        {
+            UInt15 result;
+            result.m_value = _mm_min_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static Float Min(Float a, Float b)
+        {
+            Float result;
+            for (int i = 0; i < 2; i++)
+                result.m_values[i] = _mm_min_ps(a.m_values[i], b.m_values[i]);
+            return result;
+        }
+
+        static UInt16 Max(const UInt16 &a, const UInt16 &b)
+        {
+            __m128i bitFlip = _mm_set1_epi16(-32768);
+
+            UInt16 result;
+            result.m_value = _mm_xor_si128(_mm_max_epi16(_mm_xor_si128(a.m_value, bitFlip), _mm_xor_si128(b.m_value, bitFlip)), bitFlip);
+            return result;
+        }
+
+        static SInt16 Max(const SInt16 &a, const SInt16 &b)
+        {
+            SInt16 result;
+            result.m_value = _mm_max_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static UInt15 Max(const UInt15 &a, const UInt15 &b)
+        {
+            UInt15 result;
+            result.m_value = _mm_max_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static Float Max(Float a, Float b)
+        {
+            Float result;
+            for (int i = 0; i < 2; i++)
+                result.m_values[i] = _mm_max_ps(a.m_values[i], b.m_values[i]);
+            return result;
+        }
+
+        static Float Clamp(Float v, float min, float max)
+        {
+            Float result;
+            for (int i = 0; i < 2; i++)
+                result.m_values[i] = _mm_max_ps(_mm_min_ps(v.m_values[i], _mm_set1_ps(max)), _mm_set1_ps(min));
+            return result;
+        }
+
+        static Float Reciprocal(Float v)
+        {
+            Float result;
+            for (int i = 0; i < 2; i++)
+                result.m_values[i] = _mm_rcp_ps(v.m_values[i]);
+            return result;
+        }
+
+        static void ConvertLDRInputs(const InputBlockU8* inputBlocks, int pxOffset, int channel, UInt15& chOut)
+        {
+            int16_t values[8];
+            for (int i = 0; i < 8; i++)
+                values[i] = inputBlocks[i].m_pixels[pxOffset][channel];
+
+            chOut.m_value = _mm_set_epi16(values[7], values[6], values[5], values[4], values[3], values[2], values[1], values[0]);
+        }
+
+        static void ConvertHDRInputs(const InputBlockF16* inputBlocks, int pxOffset, int channel, SInt16& chOut)
+        {
+            int16_t values[8];
+            for (int i = 0; i < 8; i++)
+                values[i] = inputBlocks[i].m_pixels[pxOffset][channel];
+
+            chOut.m_value = _mm_set_epi16(values[7], values[6], values[5], values[4], values[3], values[2], values[1], values[0]);
+        }
+
+        static Float MakeFloat(float v)
+        {
+            Float f;
+            f.m_values[0] = f.m_values[1] = _mm_set1_ps(v);
+            return f;
+        }
+
+        static Float MakeFloatZero()
+        {
+            Float f;
+            f.m_values[0] = f.m_values[1] = _mm_setzero_ps();
+            return f;
+        }
+
+        static UInt16 MakeUInt16(uint16_t v)
+        {
+            UInt16 result;
+            result.m_value = _mm_set1_epi16(static_cast<short>(v));
+            return result;
+        }
+
+        static SInt16 MakeSInt16(int16_t v)
+        {
+            SInt16 result;
+            result.m_value = _mm_set1_epi16(static_cast<short>(v));
+            return result;
+        }
+
+        static AInt16 MakeAInt16(int16_t v)
+        {
+            AInt16 result;
+            result.m_value = _mm_set1_epi16(static_cast<short>(v));
+            return result;
+        }
+
+        static UInt15 MakeUInt15(uint16_t v)
+        {
+            UInt15 result;
+            result.m_value = _mm_set1_epi16(static_cast<short>(v));
+            return result;
+        }
+
+        static SInt32 MakeSInt32(int32_t v)
+        {
+            SInt32 result;
+            result.m_values[0] = _mm_set1_epi32(v);
+            result.m_values[1] = _mm_set1_epi32(v);
+            return result;
+        }
+
+        static UInt31 MakeUInt31(uint32_t v)
+        {
+            UInt31 result;
+            result.m_values[0] = _mm_set1_epi32(v);
+            result.m_values[1] = _mm_set1_epi32(v);
+            return result;
+        }
+
+        static uint16_t Extract(const UInt16 &v, int offset)
+        {
+            return reinterpret_cast<const uint16_t*>(&v.m_value)[offset];
+        }
+
+        static int16_t Extract(const SInt16 &v, int offset)
+        {
+            return reinterpret_cast<const int16_t*>(&v.m_value)[offset];
+        }
+
+        static uint16_t Extract(const UInt15 &v, int offset)
+        {
+            return reinterpret_cast<const uint16_t*>(&v.m_value)[offset];
+        }
+
+        static int16_t Extract(const AInt16 &v, int offset)
+        {
+            return reinterpret_cast<const int16_t*>(&v.m_value)[offset];
+        }
+
+        static void PutUInt16(UInt16 &dest, int offset, uint16_t v)
+        {
+            reinterpret_cast<uint16_t*>(&dest)[offset] = v;
+        }
+
+        static void PutUInt15(UInt15 &dest, int offset, uint16_t v)
+        {
+            reinterpret_cast<uint16_t*>(&dest)[offset] = v;
+        }
+
+        static void PutSInt16(SInt16 &dest, int offset, int16_t v)
+        {
+            reinterpret_cast<int16_t*>(&dest)[offset] = v;
+        }
+
+        static float ExtractFloat(const Float& v, int offset)
+        {
+            return reinterpret_cast<const float*>(&v)[offset];
+        }
+
+        static void PutFloat(Float &dest, int offset, float v)
+        {
+            reinterpret_cast<float*>(&dest)[offset] = v;
+        }
+
+        static Int16CompFlag Less(const SInt16 &a, const SInt16 &b)
+        {
+            Int16CompFlag result;
+            result.m_value = _mm_cmplt_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static Int16CompFlag Less(const UInt15 &a, const UInt15 &b)
+        {
+            Int16CompFlag result;
+            result.m_value = _mm_cmplt_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static Int16CompFlag LessOrEqual(const UInt15 &a, const UInt15 &b)
+        {
+            Int16CompFlag result;
+            result.m_value = _mm_cmplt_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static FloatCompFlag Less(const Float &a, const Float &b)
+        {
+            FloatCompFlag result;
+            for (int i = 0; i < 2; i++)
+                result.m_values[i] = _mm_cmplt_ps(a.m_values[i], b.m_values[i]);
+            return result;
+        }
+
+        static FloatCompFlag LessOrEqual(Float a, Float b)
+        {
+            FloatCompFlag result;
+            for (int i = 0; i < 2; i++)
+                result.m_values[i] = _mm_cmple_ps(a.m_values[i], b.m_values[i]);
+            return result;
+        }
+
+        template<int TSubtype>
+        static Int16CompFlag Equal(const VInt16<TSubtype> &a, const VInt16<TSubtype> &b)
+        {
+            Int16CompFlag result;
+            result.m_value = _mm_cmpeq_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static FloatCompFlag Equal(Float a, Float b)
+        {
+            FloatCompFlag result;
+            for (int i = 0; i < 2; i++)
+                result.m_values[i] = _mm_cmpeq_ps(a.m_values[i], b.m_values[i]);
+            return result;
+        }
+
+        static Float ToFloat(const UInt16 &v)
+        {
+            Float result;
+            result.m_values[0] = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v.m_value, _mm_setzero_si128()));
+            result.m_values[1] = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v.m_value, _mm_setzero_si128()));
+            return result;
+        }
+
+        static UInt31 ToUInt31(const UInt16 &v)
+        {
+            UInt31 result;
+            result.m_values[0] = _mm_unpacklo_epi16(v.m_value, _mm_setzero_si128());
+            result.m_values[1] = _mm_unpackhi_epi16(v.m_value, _mm_setzero_si128());
+            return result;
+        }
+
+        static SInt32 ToInt32(const UInt16 &v)
+        {
+            SInt32 result;
+            result.m_values[0] = _mm_unpacklo_epi16(v.m_value, _mm_setzero_si128());
+            result.m_values[1] = _mm_unpackhi_epi16(v.m_value, _mm_setzero_si128());
+            return result;
+        }
+
+        static SInt32 ToInt32(const SInt16 &v)
+        {
+            SInt32 result;
+            result.m_values[0] = _mm_srai_epi32(_mm_unpacklo_epi16(_mm_setzero_si128(), v.m_value), 16);
+            result.m_values[1] = _mm_srai_epi32(_mm_unpackhi_epi16(_mm_setzero_si128(), v.m_value), 16);
+            return result;
+        }
+
+        static Float ToFloat(const SInt16 &v)
+        {
+            Float result;
+            result.m_values[0] = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(_mm_setzero_si128(), v.m_value), 16));
+            result.m_values[1] = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(_mm_setzero_si128(), v.m_value), 16));
+            return result;
+        }
+
+        static Float ToFloat(const UInt15 &v)
+        {
+            Float result;
+            result.m_values[0] = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v.m_value, _mm_setzero_si128()));
+            result.m_values[1] = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v.m_value, _mm_setzero_si128()));
+            return result;
+        }
+
+        static Float ToFloat(const UInt31 &v)
+        {
+            Float result;
+            result.m_values[0] = _mm_cvtepi32_ps(v.m_values[0]);
+            result.m_values[1] = _mm_cvtepi32_ps(v.m_values[1]);
+            return result;
+        }
+
+        static Int16CompFlag FloatFlagToInt16(const FloatCompFlag &v)
+        {
+            __m128i lo = _mm_castps_si128(v.m_values[0]);
+            __m128i hi = _mm_castps_si128(v.m_values[1]);
+
+            Int16CompFlag result;
+            result.m_value = _mm_packs_epi32(lo, hi);
+            return result;
+        }
+
+        static FloatCompFlag Int16FlagToFloat(const Int16CompFlag &v)
+        {
+            __m128i lo = _mm_unpacklo_epi16(v.m_value, v.m_value);
+            __m128i hi = _mm_unpackhi_epi16(v.m_value, v.m_value);
+
+            FloatCompFlag result;
+            result.m_values[0] = _mm_castsi128_ps(lo);
+            result.m_values[1] = _mm_castsi128_ps(hi);
+            return result;
+        }
+
+        static Int16CompFlag MakeBoolInt16(bool b)
+        {
+            Int16CompFlag result;
+            if (b)
+                result.m_value = _mm_set1_epi16(-1);
+            else
+                result.m_value = _mm_setzero_si128();
+        }
+
+        static FloatCompFlag MakeBoolFloat(bool b)
+        {
+            FloatCompFlag result;
+            if (b)
+                result.m_values[0] = result.m_values[1] = _mm_castsi128_ps(_mm_set1_epi32(-1));
+            else
+                result.m_values[0] = result.m_values[1] = _mm_setzero_ps();
+        }
+
+        static Int16CompFlag AndNot(const Int16CompFlag &a, const Int16CompFlag &b)
+        {
+            Int16CompFlag result;
+            result.m_value = _mm_andnot_si128(b.m_value, a.m_value);
+            return result;
+        }
+
+        static UInt16 RoundAndConvertToU16(Float v, const void* /*roundingMode*/)
+        {
+            __m128i lo = _mm_cvtps_epi32(_mm_add_ps(v.m_values[0], _mm_set1_ps(-32768)));
+            __m128i hi = _mm_cvtps_epi32(_mm_add_ps(v.m_values[1], _mm_set1_ps(-32768)));
+
+            __m128i packed = _mm_packs_epi32(lo, hi);
+
+            UInt16 result;
+            result.m_value = _mm_xor_si128(packed, _mm_set1_epi16(-32768));
+            return result;
+        }
+
+        static UInt15 RoundAndConvertToU15(Float v, const void* /*roundingMode*/)
+        {
+            __m128i lo = _mm_cvtps_epi32(v.m_values[0]);
+            __m128i hi = _mm_cvtps_epi32(v.m_values[1]);
+
+            __m128i packed = _mm_packs_epi32(lo, hi);
+
+            UInt15 result;
+            result.m_value = _mm_packs_epi32(lo, hi);
+            return result;
+        }
+
+        static SInt16 RoundAndConvertToS16(Float v, const void* /*roundingMode*/)
+        {
+            __m128i lo = _mm_cvtps_epi32(v.m_values[0]);
+            __m128i hi = _mm_cvtps_epi32(v.m_values[1]);
+
+            __m128i packed = _mm_packs_epi32(lo, hi);
+
+            SInt16 result;
+            result.m_value = _mm_packs_epi32(lo, hi);
+            return result;
+        }
+
+        static Float Sqrt(Float f)
+        {
+            Float result;
+            for (int i = 0; i < 2; i++)
+                result.m_values[i] = _mm_sqrt_ps(f.m_values[i]);
+            return result;
+        }
+
+        static UInt16 Abs(const SInt16 &a)
+        {
+            __m128i signBitsXor = _mm_srai_epi16(a.m_value, 15);
+            __m128i signBitsAdd = _mm_srli_epi16(a.m_value, 15);
+
+            UInt16 result;
+            result.m_value = _mm_add_epi16(_mm_xor_si128(a.m_value, signBitsXor), signBitsAdd);
+            return result;
+        }
+
+        static Float Abs(const Float& a)
+        {
+            __m128 invMask = _mm_set1_ps(-0.0f);
+
+            Float result;
+            result.m_values[0] = _mm_andnot_ps(invMask, a.m_values[0]);
+            result.m_values[1] = _mm_andnot_ps(invMask, a.m_values[1]);
+            return result;
+        }
+
+        static UInt16 SqDiffUInt8(const UInt15 &a, const UInt15 &b)
+        {
+            __m128i diff = _mm_sub_epi16(a.m_value, b.m_value);
+
+            UInt16 result;
+            result.m_value = _mm_mullo_epi16(diff, diff);
+            return result;
+        }
+
+        static Float SqDiffSInt16(const SInt16 &a, const SInt16 &b)
+        {
+            __m128i diffU = _mm_sub_epi16(_mm_max_epi16(a.m_value, b.m_value), _mm_min_epi16(a.m_value, b.m_value));
+
+            __m128i mulHi = _mm_mulhi_epu16(diffU, diffU);
+            __m128i mulLo = _mm_mullo_epi16(diffU, diffU);
+            __m128i sqDiffHi = _mm_unpackhi_epi16(mulLo, mulHi);
+            __m128i sqDiffLo = _mm_unpacklo_epi16(mulLo, mulHi);
+
+            Float result;
+            result.m_values[0] = _mm_cvtepi32_ps(sqDiffLo);
+            result.m_values[1] = _mm_cvtepi32_ps(sqDiffHi);
+
+            return result;
+        }
+
+        static Float TwosCLHalfToFloat(const SInt16 &v)
+        {
+            __m128i absV = _mm_add_epi16(_mm_xor_si128(v.m_value, _mm_srai_epi16(v.m_value, 15)), _mm_srli_epi16(v.m_value, 15));
+
+            __m128i signBits = _mm_and_si128(v.m_value, _mm_set1_epi16(-32768));
+            __m128i mantissa = _mm_and_si128(v.m_value, _mm_set1_epi16(0x03ff));
+            __m128i exponent = _mm_and_si128(v.m_value, _mm_set1_epi16(0x7c00));
+
+            __m128i isDenormal = _mm_cmpeq_epi16(exponent, _mm_setzero_si128());
+
+            // Convert exponent to high-bits 
+            exponent = _mm_add_epi16(_mm_srli_epi16(exponent, 3), _mm_set1_epi16(14336));
+
+            __m128i denormalCorrectionHigh = _mm_and_si128(isDenormal, _mm_or_si128(signBits, _mm_set1_epi16(14336)));
+
+            __m128i highBits = _mm_or_si128(signBits, _mm_or_si128(exponent, _mm_srli_epi16(mantissa, 3)));
+            __m128i lowBits = _mm_slli_epi16(mantissa, 13);
+
+            __m128i flow = _mm_unpacklo_epi16(lowBits, highBits);
+            __m128i fhigh = _mm_unpackhi_epi16(lowBits, highBits);
+
+            __m128i correctionLow = _mm_unpacklo_epi16(_mm_setzero_si128(), denormalCorrectionHigh);
+            __m128i correctionHigh = _mm_unpackhi_epi16(_mm_setzero_si128(), denormalCorrectionHigh);
+
+            Float result;
+            result.m_values[0] = _mm_sub_ps(_mm_castsi128_ps(flow), _mm_castsi128_ps(correctionLow));
+            result.m_values[1] = _mm_sub_ps(_mm_castsi128_ps(fhigh), _mm_castsi128_ps(correctionHigh));
+
+            return result;
+        }
+
+        static Float SqDiff2CLFloat(const SInt16 &a, const Float &b)
+        {
+            Float fa = TwosCLHalfToFloat(a);
+
+            Float diff = fa - b;
+            return diff * diff;
+        }
+
+        static Float SqDiff2CL(const SInt16 &a, const SInt16 &b)
+        {
+            Float fa = TwosCLHalfToFloat(a);
+            Float fb = TwosCLHalfToFloat(b);
+
+            Float diff = fa - fb;
+            return diff * diff;
+        }
+
+        static Float SqDiff2CLFloat(const SInt16 &a, float aWeight, const Float &b)
+        {
+            Float fa = TwosCLHalfToFloat(a) * aWeight;
+
+            Float diff = fa - b;
+            return diff * diff;
+        }
+
+        static UInt16 RightShift(const UInt16 &v, int bits)
+        {
+            UInt16 result;
+            result.m_value = _mm_srli_epi16(v.m_value, bits);
+            return result;
+        }
+
+        static UInt31 RightShift(const UInt31 &v, int bits)
+        {
+            UInt31 result;
+            result.m_values[0] = _mm_srli_epi32(v.m_values[0], bits);
+            result.m_values[1] = _mm_srli_epi32(v.m_values[1], bits);
+            return result;
+        }
+
+        static SInt16 RightShift(const SInt16 &v, int bits)
+        {
+            SInt16 result;
+            result.m_value = _mm_srai_epi16(v.m_value, bits);
+            return result;
+        }
+
+        static UInt15 RightShift(const UInt15 &v, int bits)
+        {
+            UInt15 result;
+            result.m_value = _mm_srli_epi16(v.m_value, bits);
+            return result;
+        }
+
+        static SInt32 RightShift(const SInt32 &v, int bits)
+        {
+            SInt32 result;
+            result.m_values[0] = _mm_srai_epi32(v.m_values[0], bits);
+            result.m_values[1] = _mm_srai_epi32(v.m_values[1], bits);
+            return result;
+        }
+
+        static SInt16 ToSInt16(const SInt32 &v)
+        {
+            SInt16 result;
+            result.m_value = _mm_packs_epi32(v.m_values[0], v.m_values[1]);
+            return result;
+        }
+
+        static UInt16 ToUInt16(const UInt32 &v)
+        {
+            __m128i low = _mm_srai_epi32(_mm_slli_epi32(v.m_values[0], 16), 16);
+            __m128i high = _mm_srai_epi32(_mm_slli_epi32(v.m_values[1], 16), 16);
+
+            UInt16 result;
+            result.m_value = _mm_packs_epi32(low, high);
+            return result;
+        }
+
+        static UInt16 ToUInt16(const UInt31 &v)
+        {
+            __m128i low = _mm_srai_epi32(_mm_slli_epi32(v.m_values[0], 16), 16);
+            __m128i high = _mm_srai_epi32(_mm_slli_epi32(v.m_values[1], 16), 16);
+
+            UInt16 result;
+            result.m_value = _mm_packs_epi32(low, high);
+            return result;
+        }
+
+        static UInt15 ToUInt15(const UInt31 &v)
+        {
+            UInt15 result;
+            result.m_value = _mm_packs_epi32(v.m_values[0], v.m_values[1]);
+            return result;
+        }
+
+        static SInt32 XMultiply(const SInt16 &a, const SInt16 &b)
+        {
+            __m128i high = _mm_mulhi_epi16(a.m_value, b.m_value);
+            __m128i low = _mm_mullo_epi16(a.m_value, b.m_value);
+
+            SInt32 result;
+            result.m_values[0] = _mm_unpacklo_epi16(low, high);
+            result.m_values[1] = _mm_unpackhi_epi16(low, high);
+            return result;
+        }
+
+        static SInt32 XMultiply(const SInt16 &a, const UInt15 &b)
+        {
+            __m128i high = _mm_mulhi_epi16(a.m_value, b.m_value);
+            __m128i low = _mm_mullo_epi16(a.m_value, b.m_value);
+
+            SInt32 result;
+            result.m_values[0] = _mm_unpacklo_epi16(low, high);
+            result.m_values[1] = _mm_unpackhi_epi16(low, high);
+            return result;
+        }
+
+        static SInt32 XMultiply(const UInt15 &a, const SInt16 &b)
+        {
+            return XMultiply(b, a);
+        }
+
+        static UInt32 XMultiply(const UInt16 &a, const UInt16 &b)
+        {
+            __m128i high = _mm_mulhi_epu16(a.m_value, b.m_value);
+            __m128i low = _mm_mullo_epi16(a.m_value, b.m_value);
+
+            UInt32 result;
+            result.m_values[0] = _mm_unpacklo_epi16(low, high);
+            result.m_values[1] = _mm_unpackhi_epi16(low, high);
+            return result;
+        }
+
+        static UInt16 CompactMultiply(const UInt16 &a, const UInt15 &b)
+        {
+            UInt16 result;
+            result.m_value = _mm_mullo_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static UInt16 CompactMultiply(const UInt15 &a, const UInt15 &b)
+        {
+            UInt16 result;
+            result.m_value = _mm_mullo_epi16(a.m_value, b.m_value);
+            return result;
+        }
+
+        static UInt31 XMultiply(const UInt15 &a, const UInt15 &b)
+        {
+            __m128i high = _mm_mulhi_epu16(a.m_value, b.m_value);
+            __m128i low = _mm_mullo_epi16(a.m_value, b.m_value);
+
+            UInt31 result;
+            result.m_values[0] = _mm_unpacklo_epi16(low, high);
+            result.m_values[1] = _mm_unpackhi_epi16(low, high);
+            return result;
+        }
+
+        static UInt31 XMultiply(const UInt16 &a, const UInt15 &b)
+        {
+            __m128i high = _mm_mulhi_epu16(a.m_value, b.m_value);
+            __m128i low = _mm_mullo_epi16(a.m_value, b.m_value);
+
+            UInt31 result;
+            result.m_values[0] = _mm_unpacklo_epi16(low, high);
+            result.m_values[1] = _mm_unpackhi_epi16(low, high);
+            return result;
+        }
+
+        static UInt31 XMultiply(const UInt15 &a, const UInt16 &b)
+        {
+            return XMultiply(b, a);
+        }
+
+        static bool AnySet(Int16CompFlag v)
+        {
+            return _mm_movemask_epi8(v.m_value) != 0;
+        }
+
+        static bool AllSet(Int16CompFlag v)
+        {
+            return _mm_movemask_epi8(v.m_value) == 0xffff;
+        }
+
+        static bool AnySet(FloatCompFlag v)
+        {
+            return _mm_movemask_ps(v.m_values[0]) != 0 || _mm_movemask_ps(v.m_values[1]) != 0;
+        }
+
+        static bool AllSet(FloatCompFlag v)
+        {
+            return _mm_movemask_ps(v.m_values[0]) == 0xf && _mm_movemask_ps(v.m_values[1]) == 0xf;
+        }
+    };
+
+#else
+    // Scalar version
+    struct ParallelMath
+    {
+        struct RoundTowardZeroForScope
+        {
+        };
+
+        struct RoundTowardNearestForScope
+        {
+        };
+
+        struct RoundUpForScope
+        {
+        };
+
+        struct RoundDownForScope
+        {
+        };
+
+        static const int ParallelSize = 1;
+
+        enum Int16Subtype
+        {
+            IntSubtype_Signed,
+            IntSubtype_UnsignedFull,
+            IntSubtype_UnsignedTruncated,
+            IntSubtype_Abstract,
+        };
+
+        typedef int32_t SInt16;
+        typedef int32_t UInt15;
+        typedef int32_t UInt16;
+        typedef int32_t AInt16;
+
+        typedef int32_t SInt32;
+        typedef int32_t UInt31;
+        typedef int32_t UInt32;
+        typedef int32_t AInt32;
+
+        typedef int32_t ScalarUInt16;
+        typedef int32_t ScalarSInt16;
+
+        typedef float Float;
+
+        template<class TTargetType>
+        struct LosslessCast
+        {
+            static const int32_t& Cast(const int32_t &src)
+            {
+                return src;
+            }
+        };
+
+        typedef bool Int16CompFlag;
+        typedef bool FloatCompFlag;
+
+        static int32_t AbstractAdd(const int32_t &a, const int32_t &b)
+        {
+            return a + b;
+        }
+
+        static int32_t AbstractSubtract(const int32_t &a, const int32_t &b)
+        {
+            return a - b;
+        }
+
+        static float Select(bool flag, float a, float b)
+        {
+            return flag ? a : b;
+        }
+
+        static int32_t Select(bool flag, int32_t a, int32_t b)
+        {
+            return flag ? a : b;
+        }
+
+        static int32_t SelectOrZero(bool flag, int32_t a)
+        {
+            return flag ? a : 0;
+        }
+
+        static void ConditionalSet(int32_t& dest, bool flag, int32_t src)
+        {
+            if (flag)
+                dest = src;
+        }
+
+        static int32_t ConditionalNegate(bool flag, int32_t v)
+        {
+            return (flag) ? -v : v;
+        }
+
+        static void NotConditionalSet(int32_t& dest, bool flag, int32_t src)
+        {
+            if (!flag)
+                dest = src;
+        }
+
+        static void ConditionalSet(float& dest, bool flag, float src)
+        {
+            if (flag)
+                dest = src;
+        }
+
+        static void NotConditionalSet(float& dest, bool flag, float src)
+        {
+            if (!flag)
+                dest = src;
+        }
+
+        static void MakeSafeDenominator(float& v)
+        {
+            if (v == 0.0f)
+                v = 1.0f;
+        }
+
+        static int32_t SignedRightShift(int32_t v, int bits)
+        {
+            return v >> bits;
+        }
+
+        static int32_t TruncateToPrecisionSigned(int32_t v, int precision)
+        {
+            v = (v << (32 - precision)) & 0xffffffff;
+            return SignedRightShift(v, 32 - precision);
+        }
+
+        static int32_t TruncateToPrecisionUnsigned(int32_t v, int precision)
+        {
+            return v & ((1 << precision) - 1);
+        }
+
+        static int32_t Min(int32_t a, int32_t b)
+        {
+            if (a < b)
+                return a;
+            return b;
+        }
+
+        static float Min(float a, float b)
+        {
+            if (a < b)
+                return a;
+            return b;
+        }
+
+        static int32_t Max(int32_t a, int32_t b)
+        {
+            if (a > b)
+                return a;
+            return b;
+        }
+
+        static float Max(float a, float b)
+        {
+            if (a > b)
+                return a;
+            return b;
+        }
+
+        static float Abs(float a)
+        {
+            return fabsf(a);
+        }
+
+        static int32_t Abs(int32_t a)
+        {
+            if (a < 0)
+                return -a;
+            return a;
+        }
+
+        static float Clamp(float v, float min, float max)
+        {
+            if (v < min)
+                return min;
+            if (v > max)
+                return max;
+            return v;
+        }
+
+        static float Reciprocal(float v)
+        {
+            return 1.0f / v;
+        }
+
+        static void ConvertLDRInputs(const InputBlockU8* inputBlocks, int pxOffset, int channel, int32_t& chOut)
+        {
+            chOut = inputBlocks[0].m_pixels[pxOffset][channel];
+        }
+
+        static void ConvertHDRInputs(const InputBlockF16* inputBlocks, int pxOffset, int channel, int32_t& chOut)
+        {
+            chOut = inputBlocks[0].m_pixels[pxOffset][channel];
+        }
+
+        static float MakeFloat(float v)
+        {
+            return v;
+        }
+
+        static float MakeFloatZero()
+        {
+            return 0.0f;
+        }
+
+        static int32_t MakeUInt16(uint16_t v)
+        {
+            return v;
+        }
+
+        static int32_t MakeSInt16(int16_t v)
+        {
+            return v;
+        }
+
+        static int32_t MakeAInt16(int16_t v)
+        {
+            return v;
+        }
+
+        static int32_t MakeUInt15(uint16_t v)
+        {
+            return v;
+        }
+
+        static int32_t MakeSInt32(int32_t v)
+        {
+            return v;
+        }
+
+        static int32_t MakeUInt31(int32_t v)
+        {
+            return v;
+        }
+
+        static int32_t Extract(int32_t v, int offset)
+        {
+            UNREFERENCED_PARAMETER(offset);
+            return v;
+        }
+
+        static void PutUInt16(int32_t &dest, int offset, ParallelMath::ScalarUInt16 v)
+        {
+            UNREFERENCED_PARAMETER(offset);
+            dest = v;
+        }
+
+        static void PutUInt15(int32_t &dest, int offset, ParallelMath::ScalarUInt16 v)
+        {
+            UNREFERENCED_PARAMETER(offset);
+            dest = v;
+        }
+
+        static void PutSInt16(int32_t &dest, int offset, ParallelMath::ScalarSInt16 v)
+        {
+            UNREFERENCED_PARAMETER(offset);
+            dest = v;
+        }
+
+        static float ExtractFloat(float v, int offset)
+        {
+            UNREFERENCED_PARAMETER(offset);
+            return v;
+        }
+
+        static void PutFloat(float &dest, int offset, float v)
+        {
+            UNREFERENCED_PARAMETER(offset);
+            dest = v;
+        }
+
+        static bool Less(int32_t a, int32_t b)
+        {
+            return a < b;
+        }
+
+        static bool Less(float a, float b)
+        {
+            return a < b;
+        }
+
+        static bool LessOrEqual(int32_t a, int32_t b)
+        {
+            return a < b;
+        }
+
+        static bool LessOrEqual(float a, float b)
+        {
+            return a < b;
+        }
+
+        static bool Equal(int32_t a, int32_t b)
+        {
+            return a == b;
+        }
+
+        static bool Equal(float a, float b)
+        {
+            return a == b;
+        }
+
+        static float ToFloat(int32_t v)
+        {
+            return static_cast<float>(v);
+        }
+
+        static int32_t ToUInt31(int32_t v)
+        {
+            return v;
+        }
+
+        static int32_t ToInt32(int32_t v)
+        {
+            return v;
+        }
+
+        static bool FloatFlagToInt16(bool v)
+        {
+            return v;
+        }
+
+        static bool Int16FlagToFloat(bool v)
+        {
+            return v;
+        }
+
+        static bool AndNot(bool a, bool b)
+        {
+            return a && !b;
+        }
+
+        static int32_t RoundAndConvertToInt(float v, const ParallelMath::RoundTowardZeroForScope *rtz)
+        {
+            UNREFERENCED_PARAMETER(rtz);
+            return static_cast<int>(v);
+        }
+
+        static int32_t RoundAndConvertToInt(float v, const ParallelMath::RoundUpForScope *ru)
+        {
+            UNREFERENCED_PARAMETER(ru);
+            return static_cast<int>(ceilf(v));
+        }
+
+        static int32_t RoundAndConvertToInt(float v, const ParallelMath::RoundDownForScope *rd)
+        {
+            UNREFERENCED_PARAMETER(rd);
+            return static_cast<int>(floorf(v));
+        }
+
+        static int32_t RoundAndConvertToInt(float v, const ParallelMath::RoundTowardNearestForScope *rtn)
+        {
+            UNREFERENCED_PARAMETER(rtn);
+            return static_cast<int>(floorf(v + 0.5f));
+        }
+
+        template<class TRoundMode>
+        static int32_t RoundAndConvertToU16(float v, const TRoundMode *roundingMode)
+        {
+            return RoundAndConvertToInt(v, roundingMode);
+        }
+
+        template<class TRoundMode>
+        static int32_t RoundAndConvertToU15(float v, const TRoundMode *roundingMode)
+        {
+            return RoundAndConvertToInt(v, roundingMode);
+        }
+
+        template<class TRoundMode>
+        static int32_t RoundAndConvertToS16(float v, const TRoundMode *roundingMode)
+        {
+            return RoundAndConvertToInt(v, roundingMode);
+        }
+
+        static float Sqrt(float f)
+        {
+            return sqrtf(f);
+        }
+
+        static int32_t SqDiffUInt8(int32_t a, int32_t b)
+        {
+            int32_t delta = a - b;
+            return delta * delta;
+        }
+
+        static int32_t SqDiffInt16(int32_t a, int32_t b)
+        {
+            int32_t delta = a - b;
+            return delta * delta;
+        }
+
+        static int32_t SqDiffSInt16(int32_t a, int32_t b)
+        {
+            int32_t delta = a - b;
+            return delta * delta;
+        }
+
+        static float TwosCLHalfToFloat(int32_t v)
+        {
+            int32_t absV = (v < 0) ? -v : v;
+
+            int32_t signBits = (absV & -32768);
+            int32_t mantissa = (absV & 0x03ff);
+            int32_t exponent = (absV & 0x7c00);
+
+            bool isDenormal = (exponent == 0);
+
+            // Convert exponent to high-bits
+            exponent = (exponent >> 3) + 14336;
+
+            int32_t denormalCorrection = (isDenormal ? (signBits | 14336) : 0) << 16;
+
+            int32_t fBits = ((exponent | signBits) << 16) | (mantissa << 13);
+
+            float f, correction;
+            memcpy(&f, &fBits, 4);
+            memcpy(&correction, &denormalCorrection, 4);
+
+            return f - correction;
+        }
+
+        static Float SqDiff2CLFloat(const SInt16 &a, const Float &b)
+        {
+            Float fa = TwosCLHalfToFloat(a);
+
+            Float diff = fa - b;
+            return diff * diff;
+        }
+
+        static Float SqDiff2CL(const SInt16 &a, const SInt16 &b)
+        {
+            Float fa = TwosCLHalfToFloat(a);
+            Float fb = TwosCLHalfToFloat(b);
+
+            Float diff = fa - fb;
+            return diff * diff;
+        }
+
+        static Float SqDiff2CLFloat(const SInt16 &a, float aWeight, const Float &b)
+        {
+            Float fa = TwosCLHalfToFloat(a) * aWeight;
+
+            Float diff = fa - b;
+            return diff * diff;
+        }
+
+        static int32_t RightShift(int32_t v, int bits)
+        {
+            return SignedRightShift(v, bits);
+        }
+
+        static int32_t ToSInt16(int32_t v)
+        {
+            return v;
+        }
+
+        static int32_t ToUInt16(int32_t v)
+        {
+            return v;
+        }
+
+        static int32_t ToUInt15(int32_t v)
+        {
+            return v;
+        }
+
+        static int32_t XMultiply(int32_t a, int32_t b)
+        {
+            return a * b;
+        }
+
+        static int32_t CompactMultiply(int32_t a, int32_t b)
+        {
+            return a * b;
+        }
+
+        static bool AnySet(bool v)
+        {
+            return v;
+        }
+
+        static bool AllSet(bool v)
+        {
+            return v;
+        }
+    };
+
+#endif
+
+    namespace Internal
     {
         namespace BC7Data
         {
@@ -943,1483 +2473,6 @@ namespace CVTT
             };
         }
 
-#ifdef CVTT_USE_SSE2
-        // SSE2 version
-        struct ParallelMath
-        {
-            typedef uint16_t ScalarUInt16;
-            typedef int16_t ScalarSInt16;
-
-            template<unsigned int TRoundingMode>
-            struct RoundForScope
-            {
-                unsigned int m_oldCSR;
-
-                RoundForScope()
-                {
-                    m_oldCSR = _mm_getcsr();
-                    _mm_setcsr((m_oldCSR & ~_MM_ROUND_MASK) | (TRoundingMode));
-                }
-
-                ~RoundForScope()
-                {
-                    _mm_setcsr(m_oldCSR);
-                }
-            };
-
-            struct RoundTowardZeroForScope : RoundForScope<_MM_ROUND_TOWARD_ZERO>
-            {
-            };
-
-            struct RoundTowardNearestForScope : RoundForScope<_MM_ROUND_NEAREST>
-            {
-            };
-
-            struct RoundUpForScope : RoundForScope<_MM_ROUND_UP>
-            {
-            };
-
-            static const int ParallelSize = 8;
-
-            enum Int16Subtype
-            {
-                IntSubtype_Signed,
-                IntSubtype_UnsignedFull,
-                IntSubtype_UnsignedTruncated,
-                IntSubtype_Abstract,
-            };
-
-            template<int TSubtype>
-            struct VInt16
-            {
-                __m128i m_value;
-
-                inline VInt16 operator+(int16_t other) const
-                {
-                    VInt16 result;
-                    result.m_value = _mm_add_epi16(m_value, _mm_set1_epi16(static_cast<int16_t>(other)));
-                    return result;
-                }
-
-                inline VInt16 operator+(const VInt16 &other) const
-                {
-                    VInt16 result;
-                    result.m_value = _mm_add_epi16(m_value, other.m_value);
-                    return result;
-                }
-
-                inline VInt16 operator|(const VInt16 &other) const
-                {
-                    VInt16 result;
-                    result.m_value = _mm_or_si128(m_value, other.m_value);
-                    return result;
-                }
-
-                inline VInt16 operator&(const VInt16 &other) const
-                {
-                    VInt16 result;
-                    result.m_value = _mm_and_si128(m_value, other.m_value);
-                    return result;
-                }
-
-                inline VInt16 operator-(const VInt16 &other) const
-                {
-                    VInt16 result;
-                    result.m_value = _mm_sub_epi16(m_value, other.m_value);
-                    return result;
-                }
-
-                inline VInt16 operator<<(int bits) const
-                {
-                    VInt16 result;
-                    result.m_value = _mm_slli_epi16(m_value, bits);
-                    return result;
-                }
-            };
-
-            typedef VInt16<IntSubtype_Signed> SInt16;
-            typedef VInt16<IntSubtype_UnsignedFull> UInt16;
-            typedef VInt16<IntSubtype_UnsignedTruncated> UInt15;
-            typedef VInt16<IntSubtype_Abstract> AInt16;
-
-            template<int TSubtype>
-            struct VInt32
-            {
-                __m128i m_values[2];
-
-                inline VInt32 operator+(const VInt32& other) const
-                {
-                    VInt32 result;
-                    result.m_values[0] = _mm_add_epi32(m_values[0], other.m_values[0]);
-                    result.m_values[1] = _mm_add_epi32(m_values[1], other.m_values[1]);
-                    return result;
-                }
-
-                inline VInt32 operator-(const VInt32& other) const
-                {
-                    VInt32 result;
-                    result.m_values[0] = _mm_sub_epi32(m_values[0], other.m_values[0]);
-                    result.m_values[1] = _mm_sub_epi32(m_values[1], other.m_values[1]);
-                    return result;
-                }
-
-                inline VInt32 operator<<(const int other) const
-                {
-                    VInt32 result;
-                    result.m_values[0] = _mm_slli_epi32(m_values[0], other);
-                    result.m_values[1] = _mm_slli_epi32(m_values[1], other);
-                    return result;
-                }
-            };
-
-            typedef VInt32<IntSubtype_Signed> SInt32;
-            typedef VInt32<IntSubtype_UnsignedTruncated> UInt31;
-            typedef VInt32<IntSubtype_UnsignedFull> UInt32;
-            typedef VInt32<IntSubtype_Abstract> AInt32;
-
-            template<class TTargetType>
-            struct LosslessCast
-            {
-#ifdef CVTT_PERMIT_ALIASING
-                template<int TSrcSubtype>
-                static const TTargetType& Cast(const VInt32<TSrcSubtype> &src)
-                {
-                    return reinterpret_cast<VInt32<TSubtype>&>(src);
-                }
-
-                template<int TSrcSubtype>
-                static const TTargetType& Cast(const VInt16<TSrcSubtype> &src)
-                {
-                    return reinterpret_cast<VInt16<TSubtype>&>(src);
-                }
-#else
-                template<int TSrcSubtype>
-                static TTargetType Cast(const VInt32<TSrcSubtype> &src)
-                {
-                    TTargetType result;
-                    result.m_values[0] = src.m_values[0];
-                    result.m_values[1] = src.m_values[1];
-                    return result;
-                }
-
-                template<int TSrcSubtype>
-                static TTargetType Cast(const VInt16<TSrcSubtype> &src)
-                {
-                    TTargetType result;
-                    result.m_value = src.m_value;
-                    return result;
-                }
-#endif
-            };
-
-            struct Int64
-            {
-                __m128i m_values[4];
-            };
-
-            struct Float
-            {
-                __m128 m_values[2];
-
-                inline Float operator+(const Float& other) const
-                {
-                    Float result;
-                    result.m_values[0] = _mm_add_ps(m_values[0], other.m_values[0]);
-                    result.m_values[1] = _mm_add_ps(m_values[1], other.m_values[1]);
-                    return result;
-                }
-
-                inline Float operator+(float other) const
-                {
-                    Float result;
-                    result.m_values[0] = _mm_add_ps(m_values[0], _mm_set1_ps(other));
-                    result.m_values[1] = _mm_add_ps(m_values[1], _mm_set1_ps(other));
-                    return result;
-                }
-
-                inline Float operator-(const Float& other) const
-                {
-                    Float result;
-                    result.m_values[0] = _mm_sub_ps(m_values[0], other.m_values[0]);
-                    result.m_values[1] = _mm_sub_ps(m_values[1], other.m_values[1]);
-                    return result;
-                }
-
-                inline Float operator-() const
-                {
-                    Float result;
-                    result.m_values[0] = _mm_sub_ps(_mm_setzero_ps(), m_values[0]);
-                    result.m_values[1] = _mm_sub_ps(_mm_setzero_ps(), m_values[1]);
-                    return result;
-                }
-
-                inline Float operator*(const Float& other) const
-                {
-                    Float result;
-                    result.m_values[0] = _mm_mul_ps(m_values[0], other.m_values[0]);
-                    result.m_values[1] = _mm_mul_ps(m_values[1], other.m_values[1]);
-                    return result;
-                }
-
-                inline Float operator*(float other) const
-                {
-                    Float result;
-                    result.m_values[0] = _mm_mul_ps(m_values[0], _mm_set1_ps(other));
-                    result.m_values[1] = _mm_mul_ps(m_values[1], _mm_set1_ps(other));
-                    return result;
-                }
-
-                inline Float operator/(const Float& other) const
-                {
-                    Float result;
-                    result.m_values[0] = _mm_div_ps(m_values[0], other.m_values[0]);
-                    result.m_values[1] = _mm_div_ps(m_values[1], other.m_values[1]);
-                    return result;
-                }
-
-                inline Float operator/(float other) const
-                {
-                    Float result;
-                    result.m_values[0] = _mm_div_ps(m_values[0], _mm_set1_ps(other));
-                    result.m_values[1] = _mm_div_ps(m_values[1], _mm_set1_ps(other));
-                    return result;
-                }
-            };
-
-            struct Int16CompFlag
-            {
-                __m128i m_value;
-
-                inline Int16CompFlag operator&(const Int16CompFlag& other) const
-                {
-                    Int16CompFlag result;
-                    result.m_value = _mm_and_si128(m_value, other.m_value);
-                    return result;
-                }
-
-                inline Int16CompFlag operator|(const Int16CompFlag& other) const
-                {
-                    Int16CompFlag result;
-                    result.m_value = _mm_or_si128(m_value, other.m_value);
-                    return result;
-                }
-            };
-
-            struct FloatCompFlag
-            {
-                __m128 m_values[2];
-            };
-
-            template<int TSubtype>
-            static VInt16<TSubtype> AbstractAdd(const VInt16<TSubtype> &a, const VInt16<TSubtype> &b)
-            {
-                VInt16<TSubtype> result;
-                result.m_value = _mm_add_epi16(a.m_value, b.m_value);
-                return result;
-            }
-
-            template<int TSubtype>
-            static VInt16<TSubtype> AbstractSubtract(const VInt16<TSubtype> &a, const VInt16<TSubtype> &b)
-            {
-                VInt16<TSubtype> result;
-                result.m_value = _mm_sub_epi16(a.m_value, b.m_value);
-                return result;
-            }
-
-            static Float Select(FloatCompFlag flag, Float a, Float b)
-            {
-                Float result;
-                for (int i = 0; i < 2; i++)
-                    result.m_values[i] = _mm_or_ps(_mm_and_ps(flag.m_values[i], a.m_values[i]), _mm_andnot_ps(flag.m_values[i], b.m_values[i]));
-                return result;
-            }
-
-            template<int TSubtype>
-            static VInt16<TSubtype> Select(Int16CompFlag flag, const VInt16<TSubtype> &a, const VInt16<TSubtype> &b)
-            {
-                VInt16<TSubtype> result;
-                result.m_value = _mm_or_si128(_mm_and_si128(flag.m_value, a.m_value), _mm_andnot_si128(flag.m_value, b.m_value));
-                return result;
-            }
-
-            template<int TSubtype>
-            static VInt16<TSubtype> SelectOrZero(Int16CompFlag flag, const VInt16<TSubtype> &a)
-            {
-                VInt16<TSubtype> result;
-                result.m_value = _mm_and_si128(flag.m_value, a.m_value);
-                return result;
-            }
-
-            template<int TSubtype>
-            static void ConditionalSet(VInt16<TSubtype>& dest, Int16CompFlag flag, const VInt16<TSubtype> src)
-            {
-                dest.m_value = _mm_or_si128(_mm_andnot_si128(flag.m_value, dest.m_value), _mm_and_si128(flag.m_value, src.m_value));
-            }
-
-            static SInt16 ConditionalNegate(const Int16CompFlag &flag, const SInt16& v)
-            {
-                SInt16 result;
-                result.m_value = _mm_add_epi16(_mm_xor_si128(flag.m_value, v.m_value), _mm_srli_epi16(flag.m_value, 15));
-                return result;
-            }
-
-            template<int TSubtype>
-            static void NotConditionalSet(VInt16<TSubtype>& dest, Int16CompFlag flag, const VInt16<TSubtype> src)
-            {
-                dest.m_value = _mm_or_si128(_mm_and_si128(flag.m_value, dest.m_value), _mm_andnot_si128(flag.m_value, src.m_value));
-            }
-
-            static void ConditionalSet(Float& dest, FloatCompFlag flag, const Float src)
-            {
-                for (int i = 0; i < 2; i++)
-                    dest.m_values[i] = _mm_or_ps(_mm_andnot_ps(flag.m_values[i], dest.m_values[i]), _mm_and_ps(flag.m_values[i], src.m_values[i]));
-            }
-
-            static void NotConditionalSet(Float& dest, FloatCompFlag flag, const Float src)
-            {
-                for (int i = 0; i < 2; i++)
-                    dest.m_values[i] = _mm_or_ps(_mm_and_ps(flag.m_values[i], dest.m_values[i]), _mm_andnot_ps(flag.m_values[i], src.m_values[i]));
-            }
-
-            static void MakeSafeDenominator(Float& v)
-            {
-                ConditionalSet(v, Equal(v, MakeFloatZero()), MakeFloat(1.0f));
-            }
-
-            static SInt16 TruncateToPrecisionSigned(const SInt16 &v, int precision)
-            {
-                int lostBits = 16 - precision;
-                if (lostBits == 0)
-                    return v;
-
-                SInt16 result;
-                result.m_value = _mm_srai_epi16(_mm_slli_epi16(v.m_value, lostBits), lostBits);
-                return result;
-            }
-
-            static UInt16 TruncateToPrecisionUnsigned(const UInt16 &v, int precision)
-            {
-                int lostBits = 16 - precision;
-                if (lostBits == 0)
-                    return v;
-
-                UInt16 result;
-                result.m_value = _mm_srli_epi16(_mm_slli_epi16(v.m_value, lostBits), lostBits);
-                return result;
-            }
-
-            static UInt16 Min(const UInt16 &a, const UInt16 &b)
-            {
-                __m128i bitFlip = _mm_set1_epi16(-32768);
-
-                UInt16 result;
-                result.m_value = _mm_xor_si128(_mm_min_epi16(_mm_xor_si128(a.m_value, bitFlip), _mm_xor_si128(b.m_value, bitFlip)), bitFlip);
-                return result;
-            }
-
-            static SInt16 Min(const SInt16 &a, const SInt16 &b)
-            {
-                SInt16 result;
-                result.m_value = _mm_min_epi16(a.m_value, b.m_value);
-                return result;
-            }
-
-            static UInt15 Min(const UInt15 &a, const UInt15 &b)
-            {
-                UInt15 result;
-                result.m_value = _mm_min_epi16(a.m_value, b.m_value);
-                return result;
-            }
-
-            static Float Min(Float a, Float b)
-            {
-                Float result;
-                for (int i = 0; i < 2; i++)
-                    result.m_values[i] = _mm_min_ps(a.m_values[i], b.m_values[i]);
-                return result;
-            }
-
-            static UInt16 Max(const UInt16 &a, const UInt16 &b)
-            {
-                __m128i bitFlip = _mm_set1_epi16(-32768);
-
-                UInt16 result;
-                result.m_value = _mm_xor_si128(_mm_max_epi16(_mm_xor_si128(a.m_value, bitFlip), _mm_xor_si128(b.m_value, bitFlip)), bitFlip);
-                return result;
-            }
-
-            static SInt16 Max(const SInt16 &a, const SInt16 &b)
-            {
-                SInt16 result;
-                result.m_value = _mm_max_epi16(a.m_value, b.m_value);
-                return result;
-            }
-
-            static UInt15 Max(const UInt15 &a, const UInt15 &b)
-            {
-                UInt15 result;
-                result.m_value = _mm_max_epi16(a.m_value, b.m_value);
-                return result;
-            }
-
-            static Float Max(Float a, Float b)
-            {
-                Float result;
-                for (int i = 0; i < 2; i++)
-                    result.m_values[i] = _mm_max_ps(a.m_values[i], b.m_values[i]);
-                return result;
-            }
-
-            static Float Clamp(Float v, float min, float max)
-            {
-                Float result;
-                for (int i = 0; i < 2; i++)
-                    result.m_values[i] = _mm_max_ps(_mm_min_ps(v.m_values[i], _mm_set1_ps(max)), _mm_set1_ps(min));
-                return result;
-            }
-
-            static Float Reciprocal(Float v)
-            {
-                Float result;
-                for (int i = 0; i < 2; i++)
-                    result.m_values[i] = _mm_rcp_ps(v.m_values[i]);
-                return result;
-            }
-
-            static void ConvertLDRInputs(const InputBlockU8* inputBlocks, int pxOffset, int channel, UInt15& chOut)
-            {
-                int16_t values[8];
-                for (int i = 0; i < 8; i++)
-                    values[i] = inputBlocks[i].m_pixels[pxOffset][channel];
-
-                chOut.m_value = _mm_set_epi16(values[7], values[6], values[5], values[4], values[3], values[2], values[1], values[0]);
-            }
-
-            static void ConvertHDRInputs(const InputBlockF16* inputBlocks, int pxOffset, int channel, SInt16& chOut)
-            {
-                int16_t values[8];
-                for (int i = 0; i < 8; i++)
-                    values[i] = inputBlocks[i].m_pixels[pxOffset][channel];
-
-                chOut.m_value = _mm_set_epi16(values[7], values[6], values[5], values[4], values[3], values[2], values[1], values[0]);
-            }
-
-            static Float MakeFloat(float v)
-            {
-                Float f;
-                f.m_values[0] = f.m_values[1] = _mm_set1_ps(v);
-                return f;
-            }
-
-            static Float MakeFloatZero()
-            {
-                Float f;
-                f.m_values[0] = f.m_values[1] = _mm_setzero_ps();
-                return f;
-            }
-
-            static UInt16 MakeUInt16(uint16_t v)
-            {
-                UInt16 result;
-                result.m_value = _mm_set1_epi16(static_cast<short>(v));
-                return result;
-            }
-
-            static SInt16 MakeSInt16(int16_t v)
-            {
-                SInt16 result;
-                result.m_value = _mm_set1_epi16(static_cast<short>(v));
-                return result;
-            }
-
-            static AInt16 MakeAInt16(int16_t v)
-            {
-                AInt16 result;
-                result.m_value = _mm_set1_epi16(static_cast<short>(v));
-                return result;
-            }
-
-            static UInt15 MakeUInt15(uint16_t v)
-            {
-                UInt15 result;
-                result.m_value = _mm_set1_epi16(static_cast<short>(v));
-                return result;
-            }
-
-            static SInt32 MakeSInt32(int32_t v)
-            {
-                SInt32 result;
-                result.m_values[0] = _mm_set1_epi32(v);
-                result.m_values[1] = _mm_set1_epi32(v);
-                return result;
-            }
-
-            static UInt31 MakeUInt31(uint32_t v)
-            {
-                UInt31 result;
-                result.m_values[0] = _mm_set1_epi32(v);
-                result.m_values[1] = _mm_set1_epi32(v);
-                return result;
-            }
-
-            static uint16_t Extract(const UInt16 &v, int offset)
-            {
-                return reinterpret_cast<const uint16_t*>(&v.m_value)[offset];
-            }
-
-            static int16_t Extract(const SInt16 &v, int offset)
-            {
-                return reinterpret_cast<const int16_t*>(&v.m_value)[offset];
-            }
-
-            static uint16_t Extract(const UInt15 &v, int offset)
-            {
-                return reinterpret_cast<const uint16_t*>(&v.m_value)[offset];
-            }
-
-            static int16_t Extract(const AInt16 &v, int offset)
-            {
-                return reinterpret_cast<const int16_t*>(&v.m_value)[offset];
-            }
-
-            static void PutUInt16(UInt16 &dest, int offset, uint16_t v)
-            {
-                reinterpret_cast<uint16_t*>(&dest)[offset] = v;
-            }
-
-            static void PutUInt15(UInt15 &dest, int offset, uint16_t v)
-            {
-                reinterpret_cast<uint16_t*>(&dest)[offset] = v;
-            }
-
-            static void PutSInt16(SInt16 &dest, int offset, int16_t v)
-            {
-                reinterpret_cast<int16_t*>(&dest)[offset] = v;
-            }
-
-            static float ExtractFloat(const Float& v, int offset)
-            {
-                return reinterpret_cast<const float*>(&v)[offset];
-            }
-
-            static void PutFloat(Float &dest, int offset, float v)
-            {
-                reinterpret_cast<float*>(&dest)[offset] = v;
-            }
-
-            static Int16CompFlag Less(const SInt16 &a, const SInt16 &b)
-            {
-                Int16CompFlag result;
-                result.m_value = _mm_cmplt_epi16(a.m_value, b.m_value);
-                return result;
-            }
-
-            static Int16CompFlag Less(const UInt15 &a, const UInt15 &b)
-            {
-                Int16CompFlag result;
-                result.m_value = _mm_cmplt_epi16(a.m_value, b.m_value);
-                return result;
-            }
-
-            static Int16CompFlag LessOrEqual(const UInt15 &a, const UInt15 &b)
-            {
-                Int16CompFlag result;
-                result.m_value = _mm_cmplt_epi16(a.m_value, b.m_value);
-                return result;
-            }
-
-            static FloatCompFlag Less(const Float &a, const Float &b)
-            {
-                FloatCompFlag result;
-                for (int i = 0; i < 2; i++)
-                    result.m_values[i] = _mm_cmplt_ps(a.m_values[i], b.m_values[i]);
-                return result;
-            }
-
-            static FloatCompFlag LessOrEqual(Float a, Float b)
-            {
-                FloatCompFlag result;
-                for (int i = 0; i < 2; i++)
-                    result.m_values[i] = _mm_cmple_ps(a.m_values[i], b.m_values[i]);
-                return result;
-            }
-
-            template<int TSubtype>
-            static Int16CompFlag Equal(const VInt16<TSubtype> &a, const VInt16<TSubtype> &b)
-            {
-                Int16CompFlag result;
-                result.m_value = _mm_cmpeq_epi16(a.m_value, b.m_value);
-                return result;
-            }
-
-            static FloatCompFlag Equal(Float a, Float b)
-            {
-                FloatCompFlag result;
-                for (int i = 0; i < 2; i++)
-                    result.m_values[i] = _mm_cmpeq_ps(a.m_values[i], b.m_values[i]);
-                return result;
-            }
-
-            static Float ToFloat(const UInt16 &v)
-            {
-                Float result;
-                result.m_values[0] = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v.m_value, _mm_setzero_si128()));
-                result.m_values[1] = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v.m_value, _mm_setzero_si128()));
-                return result;
-            }
-
-            static SInt32 ToInt32(const UInt16 &v)
-            {
-                SInt32 result;
-                result.m_values[0] = _mm_unpacklo_epi16(v.m_value, _mm_setzero_si128());
-                result.m_values[1] = _mm_unpackhi_epi16(v.m_value, _mm_setzero_si128());
-                return result;
-            }
-
-            static SInt32 ToInt32(const SInt16 &v)
-            {
-                SInt32 result;
-                result.m_values[0] = _mm_srai_epi32(_mm_unpacklo_epi16(_mm_setzero_si128(), v.m_value), 16);
-                result.m_values[1] = _mm_srai_epi32(_mm_unpackhi_epi16(_mm_setzero_si128(), v.m_value), 16);
-                return result;
-            }
-
-            static Float ToFloat(const SInt16 &v)
-            {
-                Float result;
-                result.m_values[0] = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(_mm_setzero_si128(), v.m_value), 16));
-                result.m_values[1] = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(_mm_setzero_si128(), v.m_value), 16));
-                return result;
-            }
-
-            static Float ToFloat(const UInt15 &v)
-            {
-                Float result;
-                result.m_values[0] = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v.m_value, _mm_setzero_si128()));
-                result.m_values[1] = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v.m_value, _mm_setzero_si128()));
-                return result;
-            }
-
-            static Int16CompFlag FloatFlagToInt16(const FloatCompFlag &v)
-            {
-                __m128i lo = _mm_castps_si128(v.m_values[0]);
-                __m128i hi = _mm_castps_si128(v.m_values[1]);
-
-                Int16CompFlag result;
-                result.m_value = _mm_packs_epi32(lo, hi);
-                return result;
-            }
-
-            static FloatCompFlag Int16FlagToFloat(const Int16CompFlag &v)
-            {
-                __m128i lo = _mm_unpacklo_epi16(v.m_value, v.m_value);
-                __m128i hi = _mm_unpackhi_epi16(v.m_value, v.m_value);
-
-                FloatCompFlag result;
-                result.m_values[0] = _mm_castsi128_ps(lo);
-                result.m_values[1] = _mm_castsi128_ps(hi);
-                return result;
-            }
-
-            static Int16CompFlag AndNot(const Int16CompFlag &a, const Int16CompFlag &b)
-            {
-                Int16CompFlag result;
-                result.m_value = _mm_andnot_si128(b.m_value, a.m_value);
-                return result;
-            }
-
-            static UInt16 RoundAndConvertToU16(Float v, const void* /*roundingMode*/)
-            {
-                __m128i lo = _mm_cvtps_epi32(_mm_add_ps(v.m_values[0], _mm_set1_ps(-32768)));
-                __m128i hi = _mm_cvtps_epi32(_mm_add_ps(v.m_values[1], _mm_set1_ps(-32768)));
-
-                __m128i packed = _mm_packs_epi32(lo, hi);
-
-                UInt16 result;
-                result.m_value = _mm_xor_si128(packed, _mm_set1_epi16(-32768));
-                return result;
-            }
-
-            static UInt15 RoundAndConvertToU15(Float v, const void* /*roundingMode*/)
-            {
-                __m128i lo = _mm_cvtps_epi32(v.m_values[0]);
-                __m128i hi = _mm_cvtps_epi32(v.m_values[1]);
-
-                __m128i packed = _mm_packs_epi32(lo, hi);
-
-                UInt15 result;
-                result.m_value = _mm_packs_epi32(lo, hi);
-                return result;
-            }
-
-            static SInt16 RoundAndConvertToS16(Float v, const void* /*roundingMode*/)
-            {
-                __m128i lo = _mm_cvtps_epi32(v.m_values[0]);
-                __m128i hi = _mm_cvtps_epi32(v.m_values[1]);
-
-                __m128i packed = _mm_packs_epi32(lo, hi);
-
-                SInt16 result;
-                result.m_value = _mm_packs_epi32(lo, hi);
-                return result;
-            }
-
-            static Float Sqrt(Float f)
-            {
-                Float result;
-                for (int i = 0; i < 2; i++)
-                    result.m_values[i] = _mm_sqrt_ps(f.m_values[i]);
-                return result;
-            }
-
-            static UInt16 Abs(const SInt16 &a)
-            {
-                __m128i signBitsXor = _mm_srai_epi16(a.m_value, 15);
-                __m128i signBitsAdd = _mm_srli_epi16(a.m_value, 15);
-
-                UInt16 result;
-                result.m_value = _mm_add_epi16(_mm_xor_si128(a.m_value, signBitsXor), signBitsAdd);
-                return result;
-            }
-
-            static Float Abs(const Float& a)
-            {
-                __m128 invMask = _mm_set1_ps(-0.0f);
-
-                Float result;
-                result.m_values[0] = _mm_andnot_ps(invMask, a.m_values[0]);
-                result.m_values[1] = _mm_andnot_ps(invMask, a.m_values[1]);
-                return result;
-            }
-
-            static UInt16 SqDiffUInt8(const UInt15 &a, const UInt15 &b)
-            {
-                __m128i diff = _mm_sub_epi16(a.m_value, b.m_value);
-
-                UInt16 result;
-                result.m_value = _mm_mullo_epi16(diff, diff);
-                return result;
-            }
-
-            static Float SqDiffSInt16(const SInt16 &a, const SInt16 &b)
-            {
-                __m128i diffU = _mm_sub_epi16(_mm_max_epi16(a.m_value, b.m_value), _mm_min_epi16(a.m_value, b.m_value));
-
-                __m128i mulHi = _mm_mulhi_epu16(diffU, diffU);
-                __m128i mulLo = _mm_mullo_epi16(diffU, diffU);
-                __m128i sqDiffHi = _mm_unpackhi_epi16(mulLo, mulHi);
-                __m128i sqDiffLo = _mm_unpacklo_epi16(mulLo, mulHi);
-
-                Float result;
-                result.m_values[0] = _mm_cvtepi32_ps(sqDiffLo);
-                result.m_values[1] = _mm_cvtepi32_ps(sqDiffHi);
-
-                return result;
-            }
-
-            static Float TwosCLHalfToFloat(const SInt16 &v)
-            {
-                __m128i absV = _mm_add_epi16(_mm_xor_si128(v.m_value, _mm_srai_epi16(v.m_value, 15)), _mm_srli_epi16(v.m_value, 15));
-
-                __m128i signBits = _mm_and_si128(v.m_value, _mm_set1_epi16(-32768));
-                __m128i mantissa = _mm_and_si128(v.m_value, _mm_set1_epi16(0x03ff));
-                __m128i exponent = _mm_and_si128(v.m_value, _mm_set1_epi16(0x7c00));
-
-                __m128i isDenormal = _mm_cmpeq_epi16(exponent, _mm_setzero_si128());
-
-                // Convert exponent to high-bits 
-                exponent = _mm_add_epi16(_mm_srli_epi16(exponent, 3), _mm_set1_epi16(14336));
-
-                __m128i denormalCorrectionHigh = _mm_and_si128(isDenormal, _mm_or_si128(signBits, _mm_set1_epi16(14336)));
-
-                __m128i highBits = _mm_or_si128(signBits, _mm_or_si128(exponent, _mm_srli_epi16(mantissa, 3)));
-                __m128i lowBits = _mm_slli_epi16(mantissa, 13);
-
-                __m128i flow = _mm_unpacklo_epi16(lowBits, highBits);
-                __m128i fhigh = _mm_unpackhi_epi16(lowBits, highBits);
-
-                __m128i correctionLow = _mm_unpacklo_epi16(_mm_setzero_si128(), denormalCorrectionHigh);
-                __m128i correctionHigh = _mm_unpackhi_epi16(_mm_setzero_si128(), denormalCorrectionHigh);
-
-                Float result;
-                result.m_values[0] = _mm_sub_ps(_mm_castsi128_ps(flow), _mm_castsi128_ps(correctionLow));
-                result.m_values[1] = _mm_sub_ps(_mm_castsi128_ps(fhigh), _mm_castsi128_ps(correctionHigh));
-
-                return result;
-            }
-
-            static Float SqDiff2CLFloat(const SInt16 &a, const Float &b)
-            {
-                Float fa = TwosCLHalfToFloat(a);
-
-                Float diff = fa - b;
-                return diff * diff;
-            }
-
-            static Float SqDiff2CL(const SInt16 &a, const SInt16 &b)
-            {
-                Float fa = TwosCLHalfToFloat(a);
-                Float fb = TwosCLHalfToFloat(b);
-
-                Float diff = fa - fb;
-                return diff * diff;
-            }
-
-            static Float SqDiff2CLFloat(const SInt16 &a, float aWeight, const Float &b)
-            {
-                Float fa = TwosCLHalfToFloat(a) * aWeight;
-
-                Float diff = fa - b;
-                return diff * diff;
-            }
-
-            static UInt16 RightShift(const UInt16 &v, int bits)
-            {
-                UInt16 result;
-                result.m_value = _mm_srli_epi16(v.m_value, bits);
-                return result;
-            }
-
-            static UInt31 RightShift(const UInt31 &v, int bits)
-            {
-                UInt31 result;
-                result.m_values[0] = _mm_srli_epi32(v.m_values[0], bits);
-                result.m_values[1] = _mm_srli_epi32(v.m_values[1], bits);
-                return result;
-            }
-
-            static SInt16 RightShift(const SInt16 &v, int bits)
-            {
-                SInt16 result;
-                result.m_value = _mm_srai_epi16(v.m_value, bits);
-                return result;
-            }
-
-            static UInt15 RightShift(const UInt15 &v, int bits)
-            {
-                UInt15 result;
-                result.m_value = _mm_srli_epi16(v.m_value, bits);
-                return result;
-            }
-
-            static SInt32 RightShift(const SInt32 &v, int bits)
-            {
-                SInt32 result;
-                result.m_values[0] = _mm_srai_epi32(v.m_values[0], bits);
-                result.m_values[1] = _mm_srai_epi32(v.m_values[1], bits);
-                return result;
-            }
-
-            static SInt16 ToSInt16(const SInt32 &v)
-            {
-                SInt16 result;
-                result.m_value = _mm_packs_epi32(v.m_values[0], v.m_values[1]);
-                return result;
-            }
-
-            static UInt16 ToUInt16(const UInt32 &v)
-            {
-                __m128i low = _mm_srai_epi32(_mm_slli_epi32(v.m_values[0], 16), 16);
-                __m128i high = _mm_srai_epi32(_mm_slli_epi32(v.m_values[1], 16), 16);
-
-                UInt16 result;
-                result.m_value = _mm_packs_epi32(low, high);
-                return result;
-            }
-
-            static UInt16 ToUInt16(const UInt31 &v)
-            {
-                __m128i low = _mm_srai_epi32(_mm_slli_epi32(v.m_values[0], 16), 16);
-                __m128i high = _mm_srai_epi32(_mm_slli_epi32(v.m_values[1], 16), 16);
-
-                UInt16 result;
-                result.m_value = _mm_packs_epi32(low, high);
-                return result;
-            }
-
-            static UInt15 ToUInt15(const UInt31 &v)
-            {
-                UInt15 result;
-                result.m_value = _mm_packs_epi32(v.m_values[0], v.m_values[1]);
-                return result;
-            }
-
-            static SInt32 XMultiply(const SInt16 &a, const SInt16 &b)
-            {
-                __m128i high = _mm_mulhi_epi16(a.m_value, b.m_value);
-                __m128i low = _mm_mullo_epi16(a.m_value, b.m_value);
-
-                SInt32 result;
-                result.m_values[0] = _mm_unpacklo_epi16(low, high);
-                result.m_values[1] = _mm_unpackhi_epi16(low, high);
-                return result;
-            }
-
-            static SInt32 XMultiply(const SInt16 &a, const UInt15 &b)
-            {
-                __m128i high = _mm_mulhi_epi16(a.m_value, b.m_value);
-                __m128i low = _mm_mullo_epi16(a.m_value, b.m_value);
-
-                SInt32 result;
-                result.m_values[0] = _mm_unpacklo_epi16(low, high);
-                result.m_values[1] = _mm_unpackhi_epi16(low, high);
-                return result;
-            }
-
-            static SInt32 XMultiply(const UInt15 &a, const SInt16 &b)
-            {
-                return XMultiply(b, a);
-            }
-
-            static UInt32 XMultiply(const UInt16 &a, const UInt16 &b)
-            {
-                __m128i high = _mm_mulhi_epu16(a.m_value, b.m_value);
-                __m128i low = _mm_mullo_epi16(a.m_value, b.m_value);
-
-                UInt32 result;
-                result.m_values[0] = _mm_unpacklo_epi16(low, high);
-                result.m_values[1] = _mm_unpackhi_epi16(low, high);
-                return result;
-            }
-
-            static UInt16 CompactMultiply(const UInt16 &a, const UInt15 &b)
-            {
-                UInt16 result;
-                result.m_value = _mm_mullo_epi16(a.m_value, b.m_value);
-                return result;
-            }
-
-            static UInt16 CompactMultiply(const UInt15 &a, const UInt15 &b)
-            {
-                UInt16 result;
-                result.m_value = _mm_mullo_epi16(a.m_value, b.m_value);
-                return result;
-            }
-
-            static UInt31 XMultiply(const UInt15 &a, const UInt15 &b)
-            {
-                __m128i high = _mm_mulhi_epu16(a.m_value, b.m_value);
-                __m128i low = _mm_mullo_epi16(a.m_value, b.m_value);
-
-                UInt31 result;
-                result.m_values[0] = _mm_unpacklo_epi16(low, high);
-                result.m_values[1] = _mm_unpackhi_epi16(low, high);
-                return result;
-            }
-
-            static UInt31 XMultiply(const UInt16 &a, const UInt15 &b)
-            {
-                __m128i high = _mm_mulhi_epu16(a.m_value, b.m_value);
-                __m128i low = _mm_mullo_epi16(a.m_value, b.m_value);
-
-                UInt31 result;
-                result.m_values[0] = _mm_unpacklo_epi16(low, high);
-                result.m_values[1] = _mm_unpackhi_epi16(low, high);
-                return result;
-            }
-
-            static UInt31 XMultiply(const UInt15 &a, const UInt16 &b)
-            {
-                return XMultiply(b, a);
-            }
-
-            static bool AnySet(Int16CompFlag v)
-            {
-                return _mm_movemask_epi8(v.m_value) != 0;
-            }
-
-            static bool AllSet(Int16CompFlag v)
-            {
-                return _mm_movemask_epi8(v.m_value) == 0xffff;
-            }
-
-            static bool AnySet(FloatCompFlag v)
-            {
-                return _mm_movemask_ps(v.m_values[0]) != 0 || _mm_movemask_ps(v.m_values[1]) != 0;
-            }
-
-            static bool AllSet(FloatCompFlag v)
-            {
-                return _mm_movemask_ps(v.m_values[0]) == 0xf && _mm_movemask_ps(v.m_values[1]) == 0xf;
-            }
-        };
-
-#else
-        // Scalar version
-        struct ParallelMath
-        {
-            struct RoundTowardZeroForScope
-            {
-            };
-
-            struct RoundTowardNearestForScope
-            {
-            };
-
-            struct RoundUpForScope
-            {
-            };
-
-            static const int ParallelSize = 1;
-
-            enum Int16Subtype
-            {
-                IntSubtype_Signed,
-                IntSubtype_UnsignedFull,
-                IntSubtype_UnsignedTruncated,
-                IntSubtype_Abstract,
-            };
-
-            typedef int32_t SInt16;
-            typedef int32_t UInt15;
-            typedef int32_t UInt16;
-            typedef int32_t AInt16;
-
-            typedef int32_t SInt32;
-            typedef int32_t UInt31;
-            typedef int32_t UInt32;
-            typedef int32_t AInt32;
-
-            typedef int32_t ScalarUInt16;
-            typedef int32_t ScalarSInt16;
-
-            typedef float Float;
-
-            template<class TTargetType>
-            struct LosslessCast
-            {
-                static const int32_t& Cast(const int32_t &src)
-                {
-                    return src;
-                }
-            };
-
-            typedef bool Int16CompFlag;
-            typedef bool FloatCompFlag;
-
-            static int32_t AbstractAdd(const int32_t &a, const int32_t &b)
-            {
-                return a + b;
-            }
-
-            static int32_t AbstractSubtract(const int32_t &a, const int32_t &b)
-            {
-                return a - b;
-            }
-
-            static float Select(bool flag, float a, float b)
-            {
-                return flag ? a : b;
-            }
-
-            static int32_t Select(bool flag, int32_t a, int32_t b)
-            {
-                return flag ? a : b;
-            }
-
-            static int32_t SelectOrZero(bool flag, int32_t a)
-            {
-                return flag ? a : 0;
-            }
-
-            static void ConditionalSet(int32_t& dest, bool flag, int32_t src)
-            {
-                if (flag)
-                    dest = src;
-            }
-
-            static int32_t ConditionalNegate(bool flag, int32_t v)
-            {
-                return (flag) ? -v : v;
-            }
-
-            static void NotConditionalSet(int32_t& dest, bool flag, int32_t src)
-            {
-                if (!flag)
-                    dest = src;
-            }
-
-            static void ConditionalSet(float& dest, bool flag, float src)
-            {
-                if (flag)
-                    dest = src;
-            }
-
-            static void NotConditionalSet(float& dest, bool flag, float src)
-            {
-                if (!flag)
-                    dest = src;
-            }
-
-            static void MakeSafeDenominator(float& v)
-            {
-                if (v == 0.0f)
-                    v = 1.0f;
-            }
-
-            static int32_t SignedRightShift(int32_t v, int bits)
-            {
-                return v >> bits;
-            }
-
-            static int32_t TruncateToPrecisionSigned(int32_t v, int precision)
-            {
-                v = (v << (32 - precision)) & 0xffffffff;
-                return SignedRightShift(v, 32 - precision);
-            }
-
-            static int32_t TruncateToPrecisionUnsigned(int32_t v, int precision)
-            {
-                return v & ((1 << precision) - 1);
-            }
-
-            static int32_t Min(int32_t a, int32_t b)
-            {
-                if (a < b)
-                    return a;
-                return b;
-            }
-
-            static float Min(float a, float b)
-            {
-                if (a < b)
-                    return a;
-                return b;
-            }
-
-            static int32_t Max(int32_t a, int32_t b)
-            {
-                if (a > b)
-                    return a;
-                return b;
-            }
-
-            static float Max(float a, float b)
-            {
-                if (a > b)
-                    return a;
-                return b;
-            }
-
-            static float Abs(float a)
-            {
-                return fabsf(a);
-            }
-
-            static int32_t Abs(int32_t a)
-            {
-                if (a < 0)
-                    return -a;
-                return a;
-            }
-
-            static float Clamp(float v, float min, float max)
-            {
-                if (v < min)
-                    return min;
-                if (v > max)
-                    return max;
-                return v;
-            }
-
-            static float Reciprocal(float v)
-            {
-                return 1.0f / v;
-            }
-
-            static void ConvertLDRInputs(const InputBlockU8* inputBlocks, int pxOffset, int channel, int32_t& chOut)
-            {
-                chOut = inputBlocks[0].m_pixels[pxOffset][channel];
-            }
-
-            static void ConvertHDRInputs(const InputBlockF16* inputBlocks, int pxOffset, int channel, int32_t& chOut)
-            {
-                chOut = inputBlocks[0].m_pixels[pxOffset][channel];
-            }
-
-            static float MakeFloat(float v)
-            {
-                return v;
-            }
-
-            static float MakeFloatZero()
-            {
-                return 0.0f;
-            }
-
-            static int32_t MakeUInt16(uint16_t v)
-            {
-                return v;
-            }
-
-            static int32_t MakeSInt16(int16_t v)
-            {
-                return v;
-            }
-
-            static int32_t MakeAInt16(int16_t v)
-            {
-                return v;
-            }
-
-            static int32_t MakeUInt15(uint16_t v)
-            {
-                return v;
-            }
-
-            static int32_t MakeSInt32(int32_t v)
-            {
-                return v;
-            }
-
-            static int32_t MakeUInt31(int32_t v)
-            {
-                return v;
-            }
-
-            static int32_t Extract(int32_t v, int offset)
-            {
-                UNREFERENCED_PARAMETER(offset);
-                return v;
-            }
-
-            static void PutUInt16(int32_t &dest, int offset, ParallelMath::ScalarUInt16 v)
-            {
-                UNREFERENCED_PARAMETER(offset);
-                dest = v;
-            }
-
-            static void PutUInt15(int32_t &dest, int offset, ParallelMath::ScalarUInt16 v)
-            {
-                UNREFERENCED_PARAMETER(offset);
-                dest = v;
-            }
-
-            static void PutSInt16(int32_t &dest, int offset, ParallelMath::ScalarSInt16 v)
-            {
-                UNREFERENCED_PARAMETER(offset);
-                dest = v;
-            }
-
-            static float ExtractFloat(float v, int offset)
-            {
-                UNREFERENCED_PARAMETER(offset);
-                return v;
-            }
-
-            static void PutFloat(float &dest, int offset, float v)
-            {
-                UNREFERENCED_PARAMETER(offset);
-                dest = v;
-            }
-
-            static bool Less(int32_t a, int32_t b)
-            {
-                return a < b;
-            }
-
-            static bool Less(float a, float b)
-            {
-                return a < b;
-            }
-
-            static bool LessOrEqual(int32_t a, int32_t b)
-            {
-                return a < b;
-            }
-
-            static bool LessOrEqual(float a, float b)
-            {
-                return a < b;
-            }
-
-            static bool Equal(int32_t a, int32_t b)
-            {
-                return a == b;
-            }
-
-            static bool Equal(float a, float b)
-            {
-                return a == b;
-            }
-
-            static float ToFloat(int32_t v)
-            {
-                return static_cast<float>(v);
-            }
-
-            static int32_t ToInt32(int32_t v)
-            {
-                return v;
-            }
-
-
-            static bool FloatFlagToInt16(bool v)
-            {
-                return v;
-            }
-
-            static bool Int16FlagToFloat(bool v)
-            {
-                return v;
-            }
-
-            static bool AndNot(bool a, bool b)
-            {
-                return a && !b;
-            }
-
-            static int32_t RoundAndConvertToInt(float v, const ParallelMath::RoundTowardZeroForScope *rtz)
-            {
-                UNREFERENCED_PARAMETER(rtz);
-                return static_cast<int>(v);
-            }
-
-            static int32_t RoundAndConvertToInt(float v, const ParallelMath::RoundUpForScope *ru)
-            {
-                UNREFERENCED_PARAMETER(ru);
-                return static_cast<int>(ceilf(v));
-            }
-
-            static int32_t RoundAndConvertToInt(float v, const ParallelMath::RoundTowardNearestForScope *rtn)
-            {
-                UNREFERENCED_PARAMETER(rtn);
-                return static_cast<int>(floorf(v + 0.5f));
-            }
-
-            template<class TRoundMode>
-            static int32_t RoundAndConvertToU16(float v, const TRoundMode *roundingMode)
-            {
-                return RoundAndConvertToInt(v, roundingMode);
-            }
-
-            template<class TRoundMode>
-            static int32_t RoundAndConvertToU15(float v, const TRoundMode *roundingMode)
-            {
-                return RoundAndConvertToInt(v, roundingMode);
-            }
-
-            template<class TRoundMode>
-            static int32_t RoundAndConvertToS16(float v, const TRoundMode *roundingMode)
-            {
-                return RoundAndConvertToInt(v, roundingMode);
-            }
-
-            static float Sqrt(float f)
-            {
-                return sqrtf(f);
-            }
-
-            static int32_t SqDiffUInt8(int32_t a, int32_t b)
-            {
-                int32_t delta = a - b;
-                return delta * delta;
-            }
-
-            static int32_t SqDiffInt16(int32_t a, int32_t b)
-            {
-                int32_t delta = a - b;
-                return delta * delta;
-            }
-
-            static int32_t SqDiffSInt16(int32_t a, int32_t b)
-            {
-                int32_t delta = a - b;
-                return delta * delta;
-            }
-
-            static float TwosCLHalfToFloat(int32_t v)
-            {
-                int32_t absV = (v < 0) ? -v : v;
-
-                int32_t signBits = (absV & -32768);
-                int32_t mantissa = (absV & 0x03ff);
-                int32_t exponent = (absV & 0x7c00);
-
-                bool isDenormal = (exponent == 0);
-
-                // Convert exponent to high-bits
-                exponent = (exponent >> 3) + 14336;
-
-                int32_t denormalCorrection = (isDenormal ? (signBits | 14336) : 0) << 16;
-
-                int32_t fBits = ((exponent | signBits) << 16) | (mantissa << 13);
-
-                float f, correction;
-                memcpy(&f, &fBits, 4);
-                memcpy(&correction, &denormalCorrection, 4);
-
-                return f - correction;
-            }
-
-            static Float SqDiff2CLFloat(const SInt16 &a, const Float &b)
-            {
-                Float fa = TwosCLHalfToFloat(a);
-
-                Float diff = fa - b;
-                return diff * diff;
-            }
-
-            static Float SqDiff2CL(const SInt16 &a, const SInt16 &b)
-            {
-                Float fa = TwosCLHalfToFloat(a);
-                Float fb = TwosCLHalfToFloat(b);
-
-                Float diff = fa - fb;
-                return diff * diff;
-            }
-
-            static Float SqDiff2CLFloat(const SInt16 &a, float aWeight, const Float &b)
-            {
-                Float fa = TwosCLHalfToFloat(a) * aWeight;
-
-                Float diff = fa - b;
-                return diff * diff;
-            }
-
-            static int32_t RightShift(int32_t v, int bits)
-            {
-                return SignedRightShift(v, bits);
-            }
-
-            static int32_t ToSInt16(int32_t v)
-            {
-                return v;
-            }
-
-            static int32_t ToUInt16(int32_t v)
-            {
-                return v;
-            }
-
-            static int32_t ToUInt15(int32_t v)
-            {
-                return v;
-            }
-
-            static int32_t XMultiply(int32_t a, int32_t b)
-            {
-                return a * b;
-            }
-
-            static int32_t CompactMultiply(int32_t a, int32_t b)
-            {
-                return a * b;
-            }
-
-            static bool AnySet(bool v)
-            {
-                return v;
-            }
-
-            static bool AllSet(bool v)
-            {
-                return v;
-            }
-        };
-
-#endif
-
         struct PackingVector
         {
             uint32_t m_vector[4];
@@ -2919,16 +2972,21 @@ namespace CVTT
                 Init<MUInt15, MUInt15>(channelWeights, endPoints, endPoints, range);
             }
 
-            void ReconstructLDR(const MUInt15 &index, MUInt15* pixel)
+            void ReconstructLDR(const MUInt15 &index, MUInt15* pixel, int numRealChannels)
             {
                 MUInt15 weight = ParallelMath::LosslessCast<MUInt15>::Cast(ParallelMath::RightShift(ParallelMath::CompactMultiply(g_weightReciprocals[m_range], index) + 256, 9));
 
-                for (int ch = 0; ch < TVectorSize; ch++)
+                for (int ch = 0; ch < numRealChannels; ch++)
                 {
                     MUInt15 ep0f = ParallelMath::LosslessCast<MUInt15>::Cast(ParallelMath::CompactMultiply((ParallelMath::MakeUInt15(64) - weight), ParallelMath::LosslessCast<MUInt15>::Cast(m_endPoint[0][ch])));
                     MUInt15 ep1f = ParallelMath::LosslessCast<MUInt15>::Cast(ParallelMath::CompactMultiply(weight, ParallelMath::LosslessCast<MUInt15>::Cast(m_endPoint[1][ch])));
                     pixel[ch] = ParallelMath::LosslessCast<MUInt15>::Cast(ParallelMath::RightShift(ep0f + ep1f + ParallelMath::MakeUInt15(32), 6));
                 }
+            }
+
+            void ReconstructLDR(const MUInt15 &index, MUInt15* pixel)
+            {
+                ReconstructLDR(index, pixel, TVectorSize);
             }
 
             MUInt15 SelectIndexLDR(const MFloat* pixel, const ParallelMath::RoundTowardNearestForScope* rtn) const
@@ -2938,6 +2996,25 @@ namespace CVTT
                     dist = dist + (pixel[ch] - m_origin[ch]) * m_axis[ch];
 
                 return ParallelMath::RoundAndConvertToU15(ParallelMath::Clamp(dist, 0.0f, m_maxValue), rtn);
+            }
+
+            void SelectIndexRangeLDR(const MFloat* pixel, MUInt15 &outLowIndex, MUInt15 &outHighIndex) const
+            {
+                MFloat dist = (pixel[0] - m_origin[0]) * m_axis[0];
+                for (int ch = 1; ch < TVectorSize; ch++)
+                    dist = dist + (pixel[ch] - m_origin[ch]) * m_axis[ch];
+
+                dist = ParallelMath::Clamp(dist, 0.0f, m_maxValue);
+
+                {
+                    ParallelMath::RoundTowardZeroForScope rtz;
+                    outLowIndex = ParallelMath::RoundAndConvertToU15(dist, &rtz);
+                }
+
+                {
+                    ParallelMath::RoundUpForScope ru;
+                    outHighIndex = ParallelMath::RoundAndConvertToU15(dist, &rtz);
+                }
             }
 
         protected:
@@ -3111,6 +3188,7 @@ namespace CVTT
             MFloat m_tt;
             MFloat m_t;
             MFloat m_w;
+            int m_wu;
 
             float m_rcpMaxIndex;
             float m_channelWeights[TVectorSize];
@@ -3136,15 +3214,17 @@ namespace CVTT
                     if (m_channelWeights[ch] != 0.0f)
                         m_rcpChannelWeights[ch] = 1.0f / channelWeights[ch];
                 }
+
+                m_wu = 0;
             }
 
-            void Contribute(const MFloat* floatPixel, const MUInt15 &index, MFloat weight)
+            void ContributePW(const MFloat *pwFloatPixel, const MUInt15 &index, MFloat weight)
             {
                 MFloat t = ParallelMath::ToFloat(index) * m_rcpMaxIndex;
 
                 for (int ch = 0; ch < TVectorSize; ch++)
                 {
-                    MFloat v = floatPixel[ch] * (weight * m_channelWeights[ch]);
+                    MFloat v = pwFloatPixel[ch] * weight;
 
                     m_tv[ch] = m_tv[ch] + t * v;
                     m_v[ch] = m_v[ch] + v;
@@ -3154,32 +3234,37 @@ namespace CVTT
                 m_w = m_w + weight;
             }
 
-            void ContributeUnweighted(const MFloat* floatPixel, const MUInt15 &index)
+            void ContributeUnweightedPW(const MFloat *pwFloatPixel, const MUInt15 &index, int numRealChannels)
             {
                 MFloat t = ParallelMath::ToFloat(index) * m_rcpMaxIndex;
 
-                for (int ch = 0; ch < TVectorSize; ch++)
+                for (int ch = 0; ch < numRealChannels; ch++)
                 {
-                    MFloat v = floatPixel[ch] * (m_channelWeights[ch]);
+                    MFloat v = pwFloatPixel[ch];
 
                     m_tv[ch] = m_tv[ch] + t * v;
                     m_v[ch] = m_v[ch] + v;
                 }
                 m_tt = m_tt + t * t;
                 m_t = m_t + t;
-                m_w = m_w + ParallelMath::MakeFloat(1.0f);
+                m_wu++;
+            }
+
+            void ContributeUnweightedPW(const MFloat *floatPixel, const MUInt15 &index)
+            {
+                ContributeUnweightedPW(floatPixel, index, TVectorSize);
             }
 
             void GetRefinedEndpoints(MFloat endPoint[2][TVectorSize])
             {
                 // a = (tv - t*v/w)/(tt - t*t/w)
                 // b = (v - a*t)/w
-                MFloat w = m_w;
+                MFloat w = m_w + ParallelMath::MakeFloat(static_cast<float>(m_wu));
 
                 ParallelMath::MakeSafeDenominator(w);
                 MFloat wRcp = ParallelMath::Reciprocal(w);
 
-                MFloat adenom = (m_tt * m_w - m_t * m_t) * wRcp;
+                MFloat adenom = (m_tt * w - m_t * m_t) * wRcp;
 
                 ParallelMath::FloatCompFlag adenomZero = ParallelMath::Equal(adenom, ParallelMath::MakeFloatZero());
                 ParallelMath::ConditionalSet(adenom, adenomZero, ParallelMath::MakeFloat(1.0f));
@@ -3188,13 +3273,13 @@ namespace CVTT
                 {
                     /*
                     if (adenom == 0.0)
-                    p1 = p2 = er.v / er.w;
+                        p1 = p2 = er.v / er.w;
                     else
                     {
-                    float4 a = (er.tv - er.t*er.v / er.w) / adenom;
-                    float4 b = (er.v - a * er.t) / er.w;
-                    p1 = b;
-                    p2 = a + b;
+                        float4 a = (er.tv - er.t*er.v / er.w) / adenom;
+                        float4 b = (er.v - a * er.t) / er.w;
+                        p1 = b;
+                        p2 = a + b;
                     }
                     */
 
@@ -3215,7 +3300,7 @@ namespace CVTT
                 }
             }
 
-            void GetRefinedEndpointsLDR(MUInt15 endPoint[2][TVectorSize], const ParallelMath::RoundTowardNearestForScope *roundingMode)
+            void GetRefinedEndpointsLDR(MUInt15 endPoint[2][TVectorSize], int numRealChannels, const ParallelMath::RoundTowardNearestForScope *roundingMode)
             {
                 MFloat floatEndPoint[2][TVectorSize];
                 GetRefinedEndpoints(floatEndPoint);
@@ -3223,6 +3308,11 @@ namespace CVTT
                 for (int epi = 0; epi < 2; epi++)
                     for (int ch = 0; ch < TVectorSize; ch++)
                         endPoint[epi][ch] = ParallelMath::RoundAndConvertToU15(ParallelMath::Clamp(floatEndPoint[epi][ch], 0.0f, 255.0f), roundingMode);
+            }
+
+            void GetRefinedEndpointsLDR(MUInt15 endPoint[2][TVectorSize], const ParallelMath::RoundTowardNearestForScope *roundingMode)
+            {
+                GetRefinedEndpointsLDR(endPoint, TVectorSize, roundingMode);
             }
 
             void GetRefinedEndpointsHDR(MSInt16 endPoint[2][TVectorSize], bool isSigned, const ParallelMath::RoundTowardNearestForScope *roundingMode)
@@ -3244,6 +3334,47 @@ namespace CVTT
             }
         };
 
+        template<int TVectorSize>
+        class AggregatedError
+        {
+        public:
+            typedef ParallelMath::UInt16 MUInt16;
+            typedef ParallelMath::UInt31 MUInt31;
+            typedef ParallelMath::Float MFloat;
+
+            AggregatedError()
+            {
+                for (int ch = 0; ch < TVectorSize; ch++)
+                    m_errorUnweighted[ch] = ParallelMath::MakeUInt31(0);
+            }
+
+            void Add(const MUInt16 &channelErrorUnweighted, int ch)
+            {
+                m_errorUnweighted[ch] = m_errorUnweighted[ch] + ParallelMath::ToUInt31(channelErrorUnweighted);
+            }
+
+            MFloat Finalize(uint32_t flags, const float channelWeightsSq[TVectorSize]) const
+            {
+                if (flags & CVTT::Flags::Uniform)
+                {
+                    MUInt31 total = m_errorUnweighted[0];
+                    for (int ch = 1; ch < TVectorSize; ch++)
+                        total = total + m_errorUnweighted[ch];
+                    return ParallelMath::ToFloat(total);
+                }
+                else
+                {
+                    MFloat total = ParallelMath::ToFloat(m_errorUnweighted[0]) * channelWeightsSq[0];
+                    for (int ch = 1; ch < TVectorSize; ch++)
+                        total = total + ParallelMath::ToFloat(m_errorUnweighted[ch]) * channelWeightsSq[ch];
+                    return total;
+                }
+            }
+
+        private:
+            MUInt31 m_errorUnweighted[TVectorSize];
+        };
+
         class BCCommon
         {
         public:
@@ -3262,21 +3393,24 @@ namespace CVTT
             }
 
             template<int TVectorSize>
-            static MFloat ComputeErrorLDR(uint32_t flags, const MUInt15 reconstructed[TVectorSize], const MUInt15 original[TVectorSize], const float channelWeights[TVectorSize])
+            static void ComputeErrorLDR(uint32_t flags, const MUInt15 reconstructed[TVectorSize], const MUInt15 original[TVectorSize], int numRealChannels, AggregatedError<TVectorSize> &aggError)
             {
-                MFloat error = ParallelMath::MakeFloatZero();
-                if (flags & Flags::Uniform)
-                {
-                    for (int ch = 0; ch < TVectorSize; ch++)
-                        error = error + ParallelMath::ToFloat(ParallelMath::SqDiffUInt8(reconstructed[ch], original[ch]));
-                }
-                else
-                {
-                    for (int ch = 0; ch < TVectorSize; ch++)
-                        error = error + ParallelMath::ToFloat(ParallelMath::SqDiffUInt8(reconstructed[ch], original[ch])) * ParallelMath::MakeFloat(channelWeights[ch]);
-                }
+                for (int ch = 0; ch < numRealChannels; ch++)
+                    aggError.Add(ParallelMath::SqDiffUInt8(reconstructed[ch], original[ch]), ch);
+            }
 
-                return error;
+            template<int TVectorSize>
+            static void ComputeErrorLDR(uint32_t flags, const MUInt15 reconstructed[TVectorSize], const MUInt15 original[TVectorSize], AggregatedError<TVectorSize> &aggError)
+            {
+                ComputeErrorLDR<TVectorSize>(flags, reconstructed, original, TVectorSize, aggError);
+            }
+
+            template<int TVectorSize>
+            static MFloat ComputeErrorLDRSimple(uint32_t flags, const MUInt15 reconstructed[TVectorSize], const MUInt15 original[TVectorSize], int numRealChannels, const float *channelWeightsSq)
+            {
+                AggregatedError<TVectorSize> aggError;
+                ComputeErrorLDR<TVectorSize>(flags, reconstructed, original, numRealChannels, aggError);
+                return aggError.Finalize(flags, channelWeightsSq);
             }
 
             template<int TVectorSize>
@@ -3511,6 +3645,105 @@ namespace CVTT
                 MFloat shapeBestError[BC7Data::g_maxFragmentsPerMode];
             };
 
+            static void TrySingleColorRGBAMultiTable(uint32_t flags, const MUInt15 pixels[16][4], const MFloat average[4], int numRealChannels, const uint8_t *fragmentStart, int shapeLength, const MFloat &staticAlphaError, MFloat& shapeBestError, MUInt15 shapeBestEP[2][4], MUInt15 *fragmentBestIndexes, const float *channelWeightsSq, const CVTT::Tables::BC7SC::Table*const* tables, int numTables, const ParallelMath::RoundTowardNearestForScope *rtn)
+            {
+                MFloat bestAverageError = ParallelMath::MakeFloat(FLT_MAX);
+
+                MUInt15 intAverage[4];
+                for (int ch = 0; ch < 4; ch++)
+                    intAverage[ch] = ParallelMath::RoundAndConvertToU15(average[ch], rtn);
+
+                MUInt15 eps[2][4];
+                MUInt15 reconstructed[4];
+                MUInt15 index = ParallelMath::MakeUInt15(0);
+
+                for (int epi = 0; epi < 2; epi++)
+                {
+                    for (int ch = 0; ch < 3; ch++)
+                        eps[epi][ch] = ParallelMath::MakeUInt15(0);
+                    eps[epi][3] = ParallelMath::MakeUInt15(255);
+                }
+
+                for (int ch = 0; ch < 3; ch++)
+                    reconstructed[ch] = ParallelMath::MakeUInt15(0);
+                reconstructed[3] = ParallelMath::MakeUInt15(255);
+
+                // Depending on the target index and parity bits, there are multiple valid solid colors.
+                // We want to find the one closest to the actual average.
+                MFloat epsAverageDiff = ParallelMath::MakeFloat(FLT_MAX);
+                for (int t = 0; t < numTables; t++)
+                {
+                    const CVTT::Tables::BC7SC::Table& table = *(tables[t]);
+
+                    MUInt15 candidateReconstructed[4];
+                    MUInt15 candidateEPs[2][4];
+
+                    for (int i = 0; i < ParallelMath::ParallelSize; i++)
+                    {
+                        for (int ch = 0; ch < numRealChannels; ch++)
+                        {
+                            ParallelMath::ScalarUInt16 avgValue = ParallelMath::Extract(intAverage[ch], i);
+                            assert(avgValue >= 0 && avgValue <= 255);
+
+                            const CVTT::Tables::BC7SC::TableEntry &entry = table.m_entries[avgValue];
+
+                            ParallelMath::PutUInt15(candidateEPs[0][ch], i, entry.m_min);
+                            ParallelMath::PutUInt15(candidateEPs[1][ch], i, entry.m_max);
+                            ParallelMath::PutUInt15(candidateReconstructed[ch], i, entry.m_actualColor);
+                        }
+                    }
+
+                    MFloat avgError = ParallelMath::MakeFloatZero();
+                    for (int ch = 0; ch < numRealChannels; ch++)
+                    {
+                        MFloat delta = ParallelMath::ToFloat(candidateReconstructed[ch]) - average[ch];
+                        avgError = avgError + delta * delta * channelWeightsSq[ch];
+                    }
+
+                    ParallelMath::Int16CompFlag avgBetter = ParallelMath::FloatFlagToInt16(ParallelMath::Less(avgError, bestAverageError));
+                    if (ParallelMath::AnySet(avgBetter))
+                    {
+                        bestAverageError = ParallelMath::Min(avgError, bestAverageError);
+
+                        MUInt15 candidateIndex = ParallelMath::MakeUInt15(table.m_index);
+
+                        ParallelMath::ConditionalSet(index, avgBetter, candidateIndex);
+
+                        for (int ch = 0; ch < numRealChannels; ch++)
+                            ParallelMath::ConditionalSet(reconstructed[ch], avgBetter, candidateReconstructed[ch]);
+
+                        for (int epi = 0; epi < 2; epi++)
+                            for (int ch = 0; ch < numRealChannels; ch++)
+                                ParallelMath::ConditionalSet(eps[epi][ch], avgBetter, candidateEPs[epi][ch]);
+                    }
+                }
+
+                AggregatedError<4> aggError;
+                for (int pxi = 0; pxi < shapeLength; pxi++)
+                {
+                    int px = fragmentStart[pxi];
+
+                    BCCommon::ComputeErrorLDR<4>(flags, reconstructed, pixels[px], numRealChannels, aggError);
+                }
+
+                MFloat error = aggError.Finalize(flags, channelWeightsSq) + staticAlphaError;
+
+                ParallelMath::Int16CompFlag better = ParallelMath::FloatFlagToInt16(ParallelMath::Less(error, shapeBestError));
+                if (ParallelMath::AnySet(better))
+                {
+                    shapeBestError = ParallelMath::Min(error, shapeBestError);
+                    for (int epi = 0; epi < 2; epi++)
+                    {
+                        for (int ch = 0; ch < numRealChannels; ch++)
+                            ParallelMath::ConditionalSet(shapeBestEP[epi][ch], better, eps[epi][ch]);
+                    }
+
+                    for (int pxi = 0; pxi < shapeLength; pxi++)
+                        ParallelMath::ConditionalSet(fragmentBestIndexes[pxi], better, index);
+                }
+            }
+
+
             static void TrySinglePlane(uint32_t flags, const MUInt15 pixels[16][4], const MFloat floatPixels[16][4], const float channelWeights[4], int numTweakRounds, int numRefineRounds, WorkInfo& work, const ParallelMath::RoundTowardNearestForScope *rtn)
             {
                 if (numRefineRounds < 1)
@@ -3536,7 +3769,7 @@ namespace CVTT
                     minAlpha = ParallelMath::Min(minAlpha, pixels[px][3]);
                 }
 
-                bool anyBlockHasAlpha = ParallelMath::AnySet(ParallelMath::Less(maxAlpha, ParallelMath::MakeUInt15(255)));
+                bool anyBlockHasAlpha = ParallelMath::AnySet(ParallelMath::Less(minAlpha, ParallelMath::MakeUInt15(255)));
 
                 // Try RGB modes if any block has a min alpha 251 or higher
                 bool allowRGBModes = ParallelMath::AnySet(ParallelMath::Less(ParallelMath::MakeUInt15(250), minAlpha));
@@ -3668,6 +3901,8 @@ namespace CVTT
                     else if (BC7Data::g_modes[mode].m_pBitMode == BC7Data::PBitMode_PerSubset)
                         parityBitMax = 2;
 
+                    int numRealChannels = isRGB ? 3 : 4;
+
                     int numShapes;
                     const int *shapeList;
                     const int *shapeCollapseList;
@@ -3712,23 +3947,42 @@ namespace CVTT
                         int shapeLength = BC7Data::g_shapeRanges[shape][1];
                         int shapeCollapsedEvalIndex = shapeCollapseList[shape];
 
+                        AggregatedError<1> alphaAggError;
+                        if (isRGB && anyBlockHasAlpha)
+                        {
+                            MUInt15 filledAlpha[1] = { ParallelMath::MakeUInt15(255) };
+
+                            for (int pxi = 0; pxi < shapeLength; pxi++)
+                            {
+                                int px = BC7Data::g_fragments[shapeStart + pxi];
+                                MUInt15 original[1] = { pixels[px][3] };
+                                BCCommon::ComputeErrorLDR<1>(flags, filledAlpha, original, alphaAggError);
+                            }
+                        }
+
+                        float alphaWeightsSq[1] = { channelWeightsSq[3] };
+                        MFloat staticAlphaError = alphaAggError.Finalize(flags, alphaWeightsSq);
+
                         assert(shapeCollapsedEvalIndex >= 0);
+
+                        MUInt15 tweakBaseEP[MaxTweakRounds][2][4];
 
                         for (int tweak = 0; tweak < numTweakRounds; tweak++)
                         {
-                            MUInt15 baseEP[2][4];
-
                             if (isRGB)
                             {
-                                temps.unfinishedRGB[rgbInitialEPCollapseList[shape]].FinishLDR(tweak, 1 << indexPrec, baseEP[0], baseEP[1]);
-                                baseEP[0][3] = baseEP[1][3] = ParallelMath::MakeUInt15(255);
+                                temps.unfinishedRGB[rgbInitialEPCollapseList[shape]].FinishLDR(tweak, 1 << indexPrec, tweakBaseEP[tweak][0], tweakBaseEP[tweak][1]);
+                                tweakBaseEP[tweak][0][3] = tweakBaseEP[tweak][1][3] = ParallelMath::MakeUInt15(255);
                             }
                             else
                             {
-                                temps.unfinishedRGBA[rgbaInitialEPCollapseList[shape]].FinishLDR(tweak, 1 << indexPrec, baseEP[0], baseEP[1]);
+                                temps.unfinishedRGBA[rgbaInitialEPCollapseList[shape]].FinishLDR(tweak, 1 << indexPrec, tweakBaseEP[tweak][0], tweakBaseEP[tweak][1]);
                             }
+                        }
 
-                            for (int pIter = 0; pIter < parityBitMax; pIter++)
+                        for (int pIter = 0; pIter < parityBitMax; pIter++)
+                        {
+                            for (int tweak = 0; tweak < numTweakRounds; tweak++)
                             {
                                 uint16_t p[2];
                                 p[0] = (pIter & 1);
@@ -3738,7 +3992,7 @@ namespace CVTT
 
                                 for (int epi = 0; epi < 2; epi++)
                                     for (int ch = 0; ch < 4; ch++)
-                                        ep[epi][ch] = baseEP[epi][ch];
+                                        ep[epi][ch] = tweakBaseEP[tweak][epi][ch];
 
                                 for (int refine = 0; refine < numRefineRounds; refine++)
                                 {
@@ -3777,23 +4031,51 @@ namespace CVTT
 
                                     MUInt15 indexes[16];
 
+                                    AggregatedError<4> aggError;
                                     for (int pxi = 0; pxi < shapeLength; pxi++)
                                     {
                                         int px = BC7Data::g_fragments[shapeStart + pxi];
 
-                                        MUInt15 index = indexSelector.SelectIndexLDR(floatPixels[px], rtn);
-
-                                        if (refine != numRefineRounds - 1)
-                                            epRefiner.ContributeUnweighted(floatPixels[px], index);
-
+                                        MUInt15 index;
                                         MUInt15 reconstructed[4];
 
-                                        indexSelector.ReconstructLDR(index, reconstructed);
+                                        index = indexSelector.SelectIndexLDR(floatPixels[px], rtn);
+                                        indexSelector.ReconstructLDR(index, reconstructed, numRealChannels);
 
-                                        shapeError = shapeError + BCCommon::ComputeErrorLDR<4>(flags, reconstructed, pixels[px], channelWeightsSq);
+                                        if (flags & CVTT::Flags::BC7_FastIndexing)
+                                            BCCommon::ComputeErrorLDR<4>(flags, reconstructed, pixels[px], numRealChannels, aggError);
+                                        else
+                                        {
+                                            MFloat error = BCCommon::ComputeErrorLDRSimple<4>(flags, reconstructed, pixels[px], numRealChannels, channelWeightsSq);
+
+                                            MUInt15 altIndexes[2];
+                                            altIndexes[0] = ParallelMath::Max(index, ParallelMath::MakeUInt15(1)) - ParallelMath::MakeUInt15(1);
+                                            altIndexes[1] = ParallelMath::Min(index + ParallelMath::MakeUInt15(1), ParallelMath::MakeUInt15(static_cast<uint16_t>((1 << indexPrec) - 1)));
+
+                                            for (int ii = 0; ii < 2; ii++)
+                                            {
+                                                indexSelector.ReconstructLDR(altIndexes[ii], reconstructed, numRealChannels);
+
+                                                MFloat altError = BCCommon::ComputeErrorLDRSimple<4>(flags, reconstructed, pixels[px], numRealChannels, channelWeightsSq);
+                                                ParallelMath::Int16CompFlag better = ParallelMath::FloatFlagToInt16(ParallelMath::Less(altError, error));
+                                                error = ParallelMath::Min(error, altError);
+                                                ParallelMath::ConditionalSet(index, better, altIndexes[ii]);
+                                            }
+
+                                            shapeError = shapeError + error;
+                                        }
+
+                                        if (refine != numRefineRounds - 1)
+                                            epRefiner.ContributeUnweightedPW(preWeightedPixels[px], index, numRealChannels);
 
                                         indexes[pxi] = index;
                                     }
+
+                                    if (flags & CVTT::Flags::BC7_FastIndexing)
+                                        shapeError = aggError.Finalize(flags, channelWeightsSq);
+
+                                    if (isRGB)
+                                        shapeError = shapeError + staticAlphaError;
 
                                     ParallelMath::FloatCompFlag shapeErrorBetter;
                                     ParallelMath::Int16CompFlag shapeErrorBetter16;
@@ -3805,7 +4087,7 @@ namespace CVTT
                                     {
                                         ParallelMath::ConditionalSet(temps.shapeBestError[shapeCollapsedEvalIndex], shapeErrorBetter, shapeError);
                                         for (int epi = 0; epi < 2; epi++)
-                                            for (int ch = 0; ch < 4; ch++)
+                                            for (int ch = 0; ch < numRealChannels; ch++)
                                                 ParallelMath::ConditionalSet(temps.shapeBestEP[shapeCollapsedEvalIndex][epi][ch], shapeErrorBetter16, ep[epi][ch]);
 
                                         for (int pxi = 0; pxi < shapeLength; pxi++)
@@ -3813,10 +4095,139 @@ namespace CVTT
                                     }
 
                                     if (refine != numRefineRounds - 1)
-                                        epRefiner.GetRefinedEndpointsLDR(ep, rtn);
+                                        epRefiner.GetRefinedEndpointsLDR(ep, numRealChannels, rtn);
                                 } // refine
-                            } // p
-                        } // tweak
+                            } // tweak
+                        } // p
+
+                        if (flags & CVTT::Flags::BC7_TrySingleColor)
+                        {
+                            MUInt15 total[4];
+                            for (int ch = 0; ch < 4; ch++)
+                                total[ch] = ParallelMath::MakeUInt15(0);
+
+                            for (int pxi = 0; pxi < shapeLength; pxi++)
+                            {
+                                int px = BC7Data::g_fragments[shapeStart + pxi];
+                                for (int ch = 0; ch < 4; ch++)
+                                    total[ch] = total[ch] + pixels[pxi][ch];
+                            }
+
+                            MFloat rcpShapeLength = ParallelMath::MakeFloat(1.0f / static_cast<float>(shapeLength));
+                            MFloat average[4];
+                            for (int ch = 0; ch < 4; ch++)
+                                average[ch] = ParallelMath::ToFloat(total[ch]) * rcpShapeLength;
+
+                            const uint8_t *fragment = BC7Data::g_fragments + shapeStart;
+                            MFloat &shapeBestError = temps.shapeBestError[shapeCollapsedEvalIndex];
+                            MUInt15(&shapeBestEP)[2][4] = temps.shapeBestEP[shapeCollapsedEvalIndex];
+                            MUInt15 *fragmentBestIndexes = temps.fragmentBestIndexes + shapeStart;
+
+                            const CVTT::Tables::BC7SC::Table **scTables = NULL;
+                            int numSCTables = 0;
+
+                            switch (mode)
+                            {
+                            case 0:
+                                {
+                                    const CVTT::Tables::BC7SC::Table *tables[] =
+                                    {
+                                        &CVTT::Tables::BC7SC::g_mode0_p00_i1,
+                                        &CVTT::Tables::BC7SC::g_mode0_p00_i2,
+                                        &CVTT::Tables::BC7SC::g_mode0_p00_i3,
+                                        &CVTT::Tables::BC7SC::g_mode0_p01_i1,
+                                        &CVTT::Tables::BC7SC::g_mode0_p01_i2,
+                                        &CVTT::Tables::BC7SC::g_mode0_p01_i3,
+                                        &CVTT::Tables::BC7SC::g_mode0_p10_i1,
+                                        &CVTT::Tables::BC7SC::g_mode0_p10_i2,
+                                        &CVTT::Tables::BC7SC::g_mode0_p10_i3,
+                                        &CVTT::Tables::BC7SC::g_mode0_p11_i1,
+                                        &CVTT::Tables::BC7SC::g_mode0_p11_i2,
+                                        &CVTT::Tables::BC7SC::g_mode0_p11_i3,
+                                    };
+                                    scTables = tables;
+                                    numSCTables = sizeof(tables) / sizeof(tables[0]);
+                                }
+                                break;
+                            case 1:
+                                {
+                                    const CVTT::Tables::BC7SC::Table *tables[] =
+                                    {
+                                        &CVTT::Tables::BC7SC::g_mode1_p0_i1,
+                                        &CVTT::Tables::BC7SC::g_mode1_p0_i2,
+                                        &CVTT::Tables::BC7SC::g_mode1_p0_i3,
+                                        &CVTT::Tables::BC7SC::g_mode1_p1_i1,
+                                        &CVTT::Tables::BC7SC::g_mode1_p1_i2,
+                                        &CVTT::Tables::BC7SC::g_mode1_p1_i3,
+                                    };
+                                    scTables = tables;
+                                    numSCTables = sizeof(tables) / sizeof(tables[0]);
+                                }
+                                break;
+                            case 2:
+                                {
+                                    const CVTT::Tables::BC7SC::Table *tables[] =
+                                    {
+                                        &CVTT::Tables::BC7SC::g_mode2,
+                                    };
+                                    scTables = tables;
+                                    numSCTables = sizeof(tables) / sizeof(tables[0]);
+                                }
+                                break;
+                            case 3:
+                                {
+                                    const CVTT::Tables::BC7SC::Table *tables[] =
+                                    {
+                                        &CVTT::Tables::BC7SC::g_mode3_p0,
+                                        &CVTT::Tables::BC7SC::g_mode3_p1,
+                                    };
+                                    scTables = tables;
+                                    numSCTables = sizeof(tables) / sizeof(tables[0]);
+                                }
+                                break;
+                            case 6:
+                                {
+                                    const CVTT::Tables::BC7SC::Table *tables[] =
+                                    {
+                                        &CVTT::Tables::BC7SC::g_mode6_p0_i1,
+                                        &CVTT::Tables::BC7SC::g_mode6_p0_i2,
+                                        &CVTT::Tables::BC7SC::g_mode6_p0_i3,
+                                        &CVTT::Tables::BC7SC::g_mode6_p0_i4,
+                                        &CVTT::Tables::BC7SC::g_mode6_p0_i5,
+                                        &CVTT::Tables::BC7SC::g_mode6_p0_i6,
+                                        &CVTT::Tables::BC7SC::g_mode6_p0_i7,
+                                        &CVTT::Tables::BC7SC::g_mode6_p1_i1,
+                                        &CVTT::Tables::BC7SC::g_mode6_p1_i2,
+                                        &CVTT::Tables::BC7SC::g_mode6_p1_i3,
+                                        &CVTT::Tables::BC7SC::g_mode6_p1_i4,
+                                        &CVTT::Tables::BC7SC::g_mode6_p1_i5,
+                                        &CVTT::Tables::BC7SC::g_mode6_p1_i6,
+                                        &CVTT::Tables::BC7SC::g_mode6_p1_i7,
+                                    };
+                                    scTables = tables;
+                                    numSCTables = sizeof(tables) / sizeof(tables[0]);
+                                }
+                                break;
+                            case 7:
+                                {
+                                    const CVTT::Tables::BC7SC::Table *tables[] =
+                                    {
+                                        &CVTT::Tables::BC7SC::g_mode7_p00,
+                                        &CVTT::Tables::BC7SC::g_mode7_p01,
+                                        &CVTT::Tables::BC7SC::g_mode7_p10,
+                                        &CVTT::Tables::BC7SC::g_mode7_p11,
+                                    };
+                                    scTables = tables;
+                                    numSCTables = sizeof(tables) / sizeof(tables[0]);
+                                }
+                                break;
+                            default:
+                                assert(false);
+                                break;
+                            }
+
+                            TrySingleColorRGBAMultiTable(flags, pixels, average, numRealChannels, fragment, shapeLength, staticAlphaError, shapeBestError, shapeBestEP, fragmentBestIndexes, channelWeightsSq, scTables, numSCTables, rtn);
+                        }
                     } // shapeIter
 
                     for (uint16_t partition = 0; partition < numPartitions; partition++)
@@ -3835,7 +4246,6 @@ namespace CVTT
                         MFloat totalError = ParallelMath::MakeFloatZero();
                         for (int subset = 0; subset < numSubsets; subset++)
                             totalError = totalError + temps.shapeBestError[shapeCollapseList[partitionShapes[subset]]];
-
 
                         ParallelMath::FloatCompFlag errorBetter = ParallelMath::Less(totalError, work.m_error);
                         ParallelMath::Int16CompFlag errorBetter16 = ParallelMath::FloatFlagToInt16(errorBetter);
@@ -4007,16 +4417,13 @@ namespace CVTT
                                     MUInt15 rgbIndexes[16];
                                     MUInt15 alphaIndexes[16];
 
+                                    AggregatedError<3> rgbAggError;
+                                    AggregatedError<1> alphaAggError;
+
                                     for (int px = 0; px < 16; px++)
                                     {
                                         MUInt15 rgbIndex = rgbIndexSelector.SelectIndexLDR(floatRotatedRGB[px], rtn);
                                         MUInt15 alphaIndex = alphaIndexSelector.SelectIndexLDR(floatPixels[px] + alphaChannel, rtn);
-
-                                        if (refine != numRefineRounds - 1)
-                                        {
-                                            rgbRefiner.ContributeUnweighted(floatRotatedRGB[px], rgbIndex);
-                                            alphaRefiner.ContributeUnweighted(floatPixels[px] + alphaChannel, alphaIndex);
-                                        }
 
                                         MUInt15 reconstructedRGB[3];
                                         MUInt15 reconstructedAlpha[1];
@@ -4024,9 +4431,70 @@ namespace CVTT
                                         rgbIndexSelector.ReconstructLDR(rgbIndex, reconstructedRGB);
                                         alphaIndexSelector.ReconstructLDR(alphaIndex, reconstructedAlpha);
 
-                                        errorRGB = errorRGB + BCCommon::ComputeErrorLDR<3>(flags, reconstructedRGB, rotatedRGB[px], rotatedRGBWeightsSq);
+                                        if (flags & CVTT::Flags::BC7_FastIndexing)
+                                        {
+                                            BCCommon::ComputeErrorLDR<3>(flags, reconstructedRGB, rotatedRGB[px], rgbAggError);
+                                            BCCommon::ComputeErrorLDR<1>(flags, reconstructedAlpha, pixels[px] + alphaChannel, alphaAggError);
+                                        }
+                                        else
+                                        {
+                                            AggregatedError<3> baseRGBAggError;
+                                            AggregatedError<1> baseAlphaAggError;
 
-                                        errorA = errorA + BCCommon::ComputeErrorLDR<1>(flags, reconstructedAlpha, pixels[px] + alphaChannel, rotatedAlphaWeightSq);
+                                            BCCommon::ComputeErrorLDR<3>(flags, reconstructedRGB, rotatedRGB[px], baseRGBAggError);
+                                            BCCommon::ComputeErrorLDR<1>(flags, reconstructedAlpha, pixels[px] + alphaChannel, baseAlphaAggError);
+
+                                            MFloat rgbError = baseRGBAggError.Finalize(flags, rotatedRGBWeightsSq);
+                                            MFloat alphaError = baseAlphaAggError.Finalize(flags, rotatedAlphaWeightSq);
+
+                                            MUInt15 altRGBIndexes[2];
+                                            MUInt15 altAlphaIndexes[2];
+
+                                            altRGBIndexes[0] = ParallelMath::Max(rgbIndex, ParallelMath::MakeUInt15(1)) - ParallelMath::MakeUInt15(1);
+                                            altRGBIndexes[1] = ParallelMath::Min(rgbIndex + ParallelMath::MakeUInt15(1), ParallelMath::MakeUInt15(static_cast<uint16_t>((1 << rgbPrec) - 1)));
+
+                                            altAlphaIndexes[0] = ParallelMath::Max(alphaIndex, ParallelMath::MakeUInt15(1)) - ParallelMath::MakeUInt15(1);
+                                            altAlphaIndexes[1] = ParallelMath::Min(alphaIndex + ParallelMath::MakeUInt15(1), ParallelMath::MakeUInt15(static_cast<uint16_t>((1 << alphaPrec) - 1)));
+
+                                            for (int ii = 0; ii < 2; ii++)
+                                            {
+                                                rgbIndexSelector.ReconstructLDR(altRGBIndexes[ii], reconstructedRGB);
+                                                alphaIndexSelector.ReconstructLDR(altAlphaIndexes[ii], reconstructedAlpha);
+
+                                                AggregatedError<3> altRGBAggError;
+                                                AggregatedError<1> altAlphaAggError;
+
+                                                BCCommon::ComputeErrorLDR<3>(flags, reconstructedRGB, rotatedRGB[px], altRGBAggError);
+                                                BCCommon::ComputeErrorLDR<1>(flags, reconstructedAlpha, pixels[px] + alphaChannel, altAlphaAggError);
+
+                                                MFloat altRGBError = altRGBAggError.Finalize(flags, rotatedRGBWeightsSq);
+                                                MFloat altAlphaError = altAlphaAggError.Finalize(flags, rotatedAlphaWeightSq);
+
+                                                ParallelMath::Int16CompFlag rgbBetter = ParallelMath::FloatFlagToInt16(ParallelMath::Less(altRGBError, rgbError));
+                                                ParallelMath::Int16CompFlag alphaBetter = ParallelMath::FloatFlagToInt16(ParallelMath::Less(altAlphaError, alphaError));
+
+                                                rgbError = ParallelMath::Min(altRGBError, rgbError);
+                                                alphaError = ParallelMath::Min(altAlphaError, alphaError);
+
+                                                ParallelMath::ConditionalSet(rgbIndex, rgbBetter, altRGBIndexes[ii]);
+                                                ParallelMath::ConditionalSet(alphaIndex, alphaBetter, altAlphaIndexes[ii]);
+                                            }
+
+                                            errorRGB = errorRGB + rgbError;
+                                            errorA = errorA + alphaError;
+                                        }
+
+                                        if (refine != numRefineRounds - 1)
+                                        {
+                                            rgbRefiner.ContributeUnweightedPW(preWeightedRotatedRGB[px], rgbIndex);
+                                            alphaRefiner.ContributeUnweightedPW(floatPixels[px] + alphaChannel, alphaIndex);
+                                        }
+
+                                        if (flags & Flags::BC7_FastIndexing)
+                                        {
+                                            errorRGB = rgbAggError.Finalize(flags, rotatedRGBWeightsSq);
+                                            errorA = rgbAggError.Finalize(flags, rotatedAlphaWeightSq);
+                                        }
 
                                         rgbIndexes[px] = rgbIndex;
                                         alphaIndexes[px] = alphaIndex;
@@ -4038,20 +4506,29 @@ namespace CVTT
                                     ParallelMath::Int16CompFlag rgbBetterInt16 = ParallelMath::FloatFlagToInt16(rgbBetter);
                                     ParallelMath::Int16CompFlag alphaBetterInt16 = ParallelMath::FloatFlagToInt16(alphaBetter);
 
-                                    bestRGBError = ParallelMath::Min(errorRGB, bestRGBError);
-                                    bestAlphaError = ParallelMath::Min(errorA, bestAlphaError);
-
-                                    for (int px = 0; px < 16; px++)
+                                    if (ParallelMath::AnySet(rgbBetterInt16))
                                     {
-                                        ParallelMath::ConditionalSet(bestRGBIndexes[px], rgbBetterInt16, rgbIndexes[px]);
-                                        ParallelMath::ConditionalSet(bestAlphaIndexes[px], alphaBetterInt16, alphaIndexes[px]);
+                                        bestRGBError = ParallelMath::Min(errorRGB, bestRGBError);
+
+                                        for (int px = 0; px < 16; px++)
+                                            ParallelMath::ConditionalSet(bestRGBIndexes[px], rgbBetterInt16, rgbIndexes[px]);
+
+                                        for (int ep = 0; ep < 2; ep++)
+                                        {
+                                            for (int ch = 0; ch < 3; ch++)
+                                                ParallelMath::ConditionalSet(bestEP[ep][ch], rgbBetterInt16, rgbEP[ep][ch]);
+                                        }
                                     }
 
-                                    for (int ep = 0; ep < 2; ep++)
+                                    if (ParallelMath::AnySet(alphaBetterInt16))
                                     {
-                                        for (int ch = 0; ch < 3; ch++)
-                                            ParallelMath::ConditionalSet(bestEP[ep][ch], rgbBetterInt16, rgbEP[ep][ch]);
-                                        ParallelMath::ConditionalSet(bestEP[ep][3], alphaBetterInt16, alphaEP[ep]);
+                                        bestAlphaError = ParallelMath::Min(errorA, bestAlphaError);
+
+                                        for (int px = 0; px < 16; px++)
+                                            ParallelMath::ConditionalSet(bestAlphaIndexes[px], alphaBetterInt16, alphaIndexes[px]);
+
+                                        for (int ep = 0; ep < 2; ep++)
+                                            ParallelMath::ConditionalSet(bestEP[ep][3], alphaBetterInt16, alphaEP[ep]);
                                     }
 
                                     if (refine != numRefineRounds - 1)
@@ -4826,7 +5303,7 @@ namespace CVTT
                                                 subsetError = subsetError + (fastIndexing ? BCCommon::ComputeErrorHDRFast<3>(flags, reconstructed, pixels[px], channelWeightsSq) : BCCommon::ComputeErrorHDRSlow<3>(flags, reconstructed, pixels[px], channelWeightsSq));
 
                                                 if (refinePass != numRefineRounds - 1)
-                                                    refiners[subset].ContributeUnweighted(floatPixels2CL[px], index);
+                                                    refiners[subset].ContributeUnweightedPW(preWeightedPixels[px], index);
                                             }
                                         }
 
@@ -5441,7 +5918,7 @@ namespace CVTT
                 }
             }
 
-            static void TestEndpoints(uint32_t flags, const MUInt15 pixels[16][4], const MFloat floatPixels[16][4], const MUInt15 unquantizedEndPoints[2][3], int range, const float* channelWeights,
+            static void TestEndpoints(uint32_t flags, const MUInt15 pixels[16][4], const MFloat floatPixels[16][4], const MFloat preWeightedPixels[16][4], const MUInt15 unquantizedEndPoints[2][3], int range, const float* channelWeights,
                 MFloat &bestError, MUInt15 bestEndpoints[2][3], MUInt15 bestIndexes[16], MUInt15 &bestRange, EndpointRefiner<3> *refiner, const ParallelMath::RoundTowardNearestForScope *rtn)
             {
                 float channelWeightsSq[3];
@@ -5468,13 +5945,14 @@ namespace CVTT
                     paranoidFactors[ch] = ParanoidFactorForSpan(ParallelMath::LosslessCast<MSInt16>::Cast(endPoints[0][ch]) - ParallelMath::LosslessCast<MSInt16>::Cast(endPoints[1][ch]));
 
                 MFloat error = ParallelMath::MakeFloatZero();
+                AggregatedError<3> aggError;
                 for (int px = 0; px < 16; px++)
                 {
                     MUInt15 index = selector.SelectIndexLDR(floatPixels[px], rtn);
                     indexes[px] = index;
 
                     if (refiner)
-                        refiner->ContributeUnweighted(floatPixels[px], index);
+                        refiner->ContributeUnweightedPW(preWeightedPixels[px], index);
 
                     MUInt15 reconstructed[3];
                     selector.ReconstructLDR(index, reconstructed);
@@ -5485,8 +5963,11 @@ namespace CVTT
                             error = error + ParanoidDiff(reconstructed[ch], pixels[px][ch], paranoidFactors[ch]) * channelWeightsSq[ch];
                     }
                     else
-                        error = error + BCCommon::ComputeErrorLDR<3>(flags, reconstructed, pixels[px], channelWeightsSq);
+                        BCCommon::ComputeErrorLDR<3>(flags, reconstructed, pixels[px], aggError);
                 }
+
+                if (!(flags & Flags::S3TC_Paranoid))
+                    error = aggError.Finalize(flags, channelWeightsSq);
 
                 ParallelMath::FloatCompFlag better = ParallelMath::Less(error, bestError);
 
@@ -5507,8 +5988,8 @@ namespace CVTT
                 }
             }
 
-            static void TestCounts(uint32_t flags, const int *counts, int nCounts, MUInt15 numElements, const MUInt15 pixels[16][4], const MFloat floatPixels[16][4], bool alphaTest,
-                const MFloat floatSortedInputs[16][4], const float *channelWeights, MFloat &bestError, MUInt15 bestEndpoints[2][3], MUInt15 bestIndexes[16], MUInt15 &bestRange,
+            static void TestCounts(uint32_t flags, const int *counts, int nCounts, MUInt15 numElements, const MUInt15 pixels[16][4], const MFloat floatPixels[16][4], const MFloat preWeightedPixels[16][4], bool alphaTest,
+                const MFloat floatSortedInputs[16][4], const MFloat preWeightedFloatSortedInputs[16][4], const float *channelWeights, MFloat &bestError, MUInt15 bestEndpoints[2][3], MUInt15 bestIndexes[16], MUInt15 &bestRange,
                 const ParallelMath::RoundTowardNearestForScope* rtn)
             {
                 UNREFERENCED_PARAMETER(alphaTest);
@@ -5532,11 +6013,11 @@ namespace CVTT
                         }
 
                         if (ParallelMath::AllSet(valid))
-                            refiner.ContributeUnweighted(floatSortedInputs[e++], ParallelMath::MakeUInt15(static_cast<uint16_t>(i)));
+                            refiner.ContributeUnweightedPW(preWeightedFloatSortedInputs[e++], ParallelMath::MakeUInt15(static_cast<uint16_t>(i)));
                         else
                         {
                             MFloat weight = ParallelMath::Select(ParallelMath::Int16FlagToFloat(valid), ParallelMath::MakeFloat(1.0f), ParallelMath::MakeFloat(0.0f));
-                            refiner.Contribute(floatSortedInputs[e++], ParallelMath::MakeUInt15(static_cast<uint16_t>(i)), weight);
+                            refiner.ContributePW(preWeightedFloatSortedInputs[e++], ParallelMath::MakeUInt15(static_cast<uint16_t>(i)), weight);
                         }
                     }
 
@@ -5547,7 +6028,7 @@ namespace CVTT
                 MUInt15 endPoints[2][3];
                 refiner.GetRefinedEndpointsLDR(endPoints, rtn);
 
-                TestEndpoints(flags, pixels, floatPixels, endPoints, nCounts, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, nullptr, rtn);
+                TestEndpoints(flags, pixels, floatPixels, preWeightedPixels, endPoints, nCounts, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, nullptr, rtn);
             }
 
             static void PackExplicitAlpha(uint32_t flags, const InputBlockU8* inputs, int inputChannel, uint8_t* packedBlocks, size_t packedBlockStride)
@@ -5680,8 +6161,8 @@ namespace CVTT
                             indexSelector.Init<false>(oneWeight, ep, 8);
 
                             MUInt15 indexes[16];
-                            MFloat error = ParallelMath::MakeFloatZero();
 
+                            AggregatedError<1> aggError;
                             for (int px = 0; px < 16; px++)
                             {
                                 MUInt15 index = indexSelector.SelectIndexLDR(&floatPixels[px], &rtn);
@@ -5689,13 +6170,14 @@ namespace CVTT
                                 MUInt15 reconstructedPixel;
 
                                 indexSelector.ReconstructLDR(index, &reconstructedPixel);
-                                error = error + BCCommon::ComputeErrorLDR<1>(flags, &reconstructedPixel, &pixels[px], oneWeight);
+                                BCCommon::ComputeErrorLDR<1>(flags, &reconstructedPixel, &pixels[px], aggError);
 
                                 if (refinePass != numRefineRounds - 1)
-                                    refiner.ContributeUnweighted(&floatPixels[px], index);
+                                    refiner.ContributeUnweightedPW(&floatPixels[px], index);
 
                                 indexes[px] = index;
                             }
+                            MFloat error = aggError.Finalize(flags | Flags::Uniform, oneWeight);
 
                             ParallelMath::FloatCompFlag errorBetter = ParallelMath::Less(error, bestError);
                             ParallelMath::Int16CompFlag errorBetter16 = ParallelMath::FloatFlagToInt16(errorBetter);
@@ -5842,9 +6324,9 @@ namespace CVTT
 
                                         indexSelector.ReconstructLDR(selectedIndex, &reconstructedPixel);
 
-                                        MFloat zeroError = BCCommon::ComputeErrorLDR<1>(flags, &zero, &pixels[px], oneWeight);
-                                        MFloat highTerminalError = BCCommon::ComputeErrorLDR<1>(flags, &highTerminal, &pixels[px], oneWeight);
-                                        MFloat selectedIndexError = BCCommon::ComputeErrorLDR<1>(flags, &reconstructedPixel, &pixels[px], oneWeight);
+                                        MFloat zeroError = BCCommon::ComputeErrorLDRSimple<1>(flags | Flags::Uniform, &zero, &pixels[px], 1, oneWeight);
+                                        MFloat highTerminalError = BCCommon::ComputeErrorLDRSimple<1>(flags | Flags::Uniform, &highTerminal, &pixels[px], 1, oneWeight);
+                                        MFloat selectedIndexError = BCCommon::ComputeErrorLDRSimple<1>(flags | Flags::Uniform, &reconstructedPixel, &pixels[px], 1, oneWeight);
 
                                         MFloat bestPixelError = zeroError;
                                         MUInt15 index = ParallelMath::MakeUInt15(6);
@@ -5857,14 +6339,14 @@ namespace CVTT
                                         if (ParallelMath::AllSet(selectedIndexBetter))
                                         {
                                             if (refinePass != numRefineRounds - 1)
-                                                refiner.ContributeUnweighted(&floatPixels[px], selectedIndex);
+                                                refiner.ContributeUnweightedPW(&floatPixels[px], selectedIndex);
                                         }
                                         else
                                         {
                                             MFloat refineWeight = ParallelMath::Select(selectedIndexBetter, ParallelMath::MakeFloat(1.0f), ParallelMath::MakeFloatZero());
 
                                             if (refinePass != numRefineRounds - 1)
-                                                refiner.Contribute(&floatPixels[px], selectedIndex, refineWeight);
+                                                refiner.ContributePW(&floatPixels[px], selectedIndex, refineWeight);
                                         }
 
                                         ParallelMath::ConditionalSet(index, ParallelMath::FloatFlagToInt16(selectedIndexBetter), selectedIndex);
@@ -6101,6 +6583,7 @@ namespace CVTT
 
                     MUInt15 sortedInputs[16][4];
                     MFloat floatSortedInputs[16][4];
+                    MFloat pwFloatSortedInputs[16][4];
 
                     for (int e = 0; e < 16; e++)
                     {
@@ -6123,7 +6606,11 @@ namespace CVTT
                     for (int e = 0; e < 16; e++)
                     {
                         for (int ch = 0; ch < 4; ch++)
-                            floatSortedInputs[e][ch] = ParallelMath::ToFloat(sortedInputs[e][ch]);
+                        {
+                            MFloat f = ParallelMath::ToFloat(sortedInputs[e][ch]);
+                            floatSortedInputs[e][ch] = f;
+                            pwFloatSortedInputs[e][ch] = f * channelWeights[ch];
+                        }
                     }
 
                     for (int n0 = 0; n0 <= 15; n0++)
@@ -6147,7 +6634,7 @@ namespace CVTT
 
                                 int counts[4] = { n0, n1, n2, n3 };
 
-                                TestCounts(flags, counts, 4, numElements, pixels, floatPixels, alphaTest, floatSortedInputs, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, &rtn);
+                                TestCounts(flags, counts, 4, numElements, pixels, floatPixels, preWeightedPixels, alphaTest, floatSortedInputs, pwFloatSortedInputs, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, &rtn);
                             }
                         }
                     }
@@ -6171,7 +6658,7 @@ namespace CVTT
 
                                 int counts[3] = { n0, n1, n2 };
 
-                                TestCounts(flags, counts, 3, numElements, pixels, floatPixels, alphaTest, floatSortedInputs, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, &rtn);
+                                TestCounts(flags, counts, 3, numElements, pixels, floatPixels, preWeightedPixels, alphaTest, floatSortedInputs, pwFloatSortedInputs, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, &rtn);
                             }
                         }
 
@@ -6199,7 +6686,7 @@ namespace CVTT
                                 EndpointRefiner<3> refiner;
                                 refiner.Init(range, channelWeights);
 
-                                TestEndpoints(flags, pixels, floatPixels, endPoints, range, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, &refiner, &rtn);
+                                TestEndpoints(flags, pixels, floatPixels, preWeightedPixels, endPoints, range, channelWeights, bestError, bestEndpoints, bestIndexes, bestRange, &refiner, &rtn);
 
                                 if (refine != numRefineRounds - 1)
                                     refiner.GetRefinedEndpointsLDR(endPoints, &rtn);
@@ -6334,11 +6821,11 @@ namespace CVTT
             assert(pBC);
 
             float channelWeights[4];
-            FillWeights(options, channelWeights);
+            Internal::FillWeights(options, channelWeights);
 
             for (size_t blockBase = 0; blockBase < CVTT::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                BC7Computer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, options.seedPoints, options.refineRoundsBC7);
+                Internal::BC7Computer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, options.seedPoints, options.refineRoundsBC7);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
@@ -6349,11 +6836,11 @@ namespace CVTT
             assert(pBC);
 
             float channelWeights[4];
-            FillWeights(options, channelWeights);
+            Internal::FillWeights(options, channelWeights);
 
             for (size_t blockBase = 0; blockBase < CVTT::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                BC6HComputer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, false, options.seedPoints, options.refineRoundsBC6H);
+                Internal::BC6HComputer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, false, options.seedPoints, options.refineRoundsBC6H);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
@@ -6364,11 +6851,11 @@ namespace CVTT
             assert(pBC);
 
             float channelWeights[4];
-            FillWeights(options, channelWeights);
+            Internal::FillWeights(options, channelWeights);
 
             for (size_t blockBase = 0; blockBase < CVTT::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                BC6HComputer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, true, options.seedPoints, options.refineRoundsBC6H);
+                Internal::BC6HComputer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, true, options.seedPoints, options.refineRoundsBC6H);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
@@ -6379,11 +6866,11 @@ namespace CVTT
             assert(pBC);
 
             float channelWeights[4];
-            FillWeights(options, channelWeights);
+            Internal::FillWeights(options, channelWeights);
 
             for (size_t blockBase = 0; blockBase < CVTT::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC, 8, channelWeights, true, options.threshold, (options.flags & Flags::S3TC_Exhaustive) != 0, options.seedPoints, options.refineRoundsS3TC);
+                Internal::S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC, 8, channelWeights, true, options.threshold, (options.flags & Flags::S3TC_Exhaustive) != 0, options.seedPoints, options.refineRoundsS3TC);
                 pBC += ParallelMath::ParallelSize * 8;
             }
         }
@@ -6394,12 +6881,12 @@ namespace CVTT
             assert(pBC);
 
             float channelWeights[4];
-            FillWeights(options, channelWeights);
+            Internal::FillWeights(options, channelWeights);
 
             for (size_t blockBase = 0; blockBase < NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC + 8, 16, channelWeights, false, 1.0f, (options.flags & Flags::S3TC_Exhaustive) != 0, options.seedPoints, options.refineRoundsS3TC);
-                S3TCComputer::PackExplicitAlpha(options.flags, pBlocks + blockBase, 3, pBC, 16);
+                Internal::S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC + 8, 16, channelWeights, false, 1.0f, (options.flags & Flags::S3TC_Exhaustive) != 0, options.seedPoints, options.refineRoundsS3TC);
+                Internal::S3TCComputer::PackExplicitAlpha(options.flags, pBlocks + blockBase, 3, pBC, 16);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
@@ -6410,12 +6897,12 @@ namespace CVTT
             assert(pBC);
 
             float channelWeights[4];
-            FillWeights(options, channelWeights);
+            Internal::FillWeights(options, channelWeights);
 
             for (size_t blockBase = 0; blockBase < NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC + 8, 16, channelWeights, false, 1.0f, (options.flags & Flags::S3TC_Exhaustive) != 0, options.seedPoints, options.refineRoundsS3TC);
-                S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 3, pBC, 16, false, options.seedPoints, options.refineRoundsIIC);
+                Internal::S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC + 8, 16, channelWeights, false, 1.0f, (options.flags & Flags::S3TC_Exhaustive) != 0, options.seedPoints, options.refineRoundsS3TC);
+                Internal::S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 3, pBC, 16, false, options.seedPoints, options.refineRoundsIIC);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
@@ -6426,11 +6913,11 @@ namespace CVTT
             assert(pBC);
 
             float channelWeights[4];
-            FillWeights(options, channelWeights);
+            Internal::FillWeights(options, channelWeights);
 
             for (size_t blockBase = 0; blockBase < NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 0, pBC, 8, false, options.seedPoints, options.refineRoundsIIC);
+                Internal::S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 0, pBC, 8, false, options.seedPoints, options.refineRoundsIIC);
                 pBC += ParallelMath::ParallelSize * 8;
             }
         }
@@ -6441,14 +6928,14 @@ namespace CVTT
             assert(pBC);
 
             float channelWeights[4];
-            FillWeights(options, channelWeights);
+            Internal::FillWeights(options, channelWeights);
 
             for (size_t blockBase = 0; blockBase < NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
                 InputBlockU8 inputBlocks[ParallelMath::ParallelSize];
-                BiasSignedInput(inputBlocks, pBlocks + blockBase);
+                Internal::BiasSignedInput(inputBlocks, pBlocks + blockBase);
 
-                S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 0, pBC, 8, true, options.seedPoints, options.refineRoundsIIC);
+                Internal::S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 0, pBC, 8, true, options.seedPoints, options.refineRoundsIIC);
                 pBC += ParallelMath::ParallelSize * 8;
             }
         }
@@ -6459,12 +6946,12 @@ namespace CVTT
             assert(pBC);
 
             float channelWeights[4];
-            FillWeights(options, channelWeights);
+            Internal::FillWeights(options, channelWeights);
 
             for (size_t blockBase = 0; blockBase < NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
-                S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 0, pBC, 16, false, options.seedPoints, options.refineRoundsIIC);
-                S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 1, pBC + 8, 16, false, options.seedPoints, options.refineRoundsIIC);
+                Internal::S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 0, pBC, 16, false, options.seedPoints, options.refineRoundsIIC);
+                Internal::S3TCComputer::PackInterpolatedAlpha(options.flags, pBlocks + blockBase, 1, pBC + 8, 16, false, options.seedPoints, options.refineRoundsIIC);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
@@ -6475,15 +6962,15 @@ namespace CVTT
             assert(pBC);
 
             float channelWeights[4];
-            FillWeights(options, channelWeights);
+            Internal::FillWeights(options, channelWeights);
 
             for (size_t blockBase = 0; blockBase < NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
                 InputBlockU8 inputBlocks[ParallelMath::ParallelSize];
-                BiasSignedInput(inputBlocks, pBlocks + blockBase);
+                Internal::BiasSignedInput(inputBlocks, pBlocks + blockBase);
 
-                S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 0, pBC, 16, true, options.seedPoints, options.refineRoundsIIC);
-                S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 1, pBC + 8, 16, true, options.seedPoints, options.refineRoundsIIC);
+                Internal::S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 0, pBC, 16, true, options.seedPoints, options.refineRoundsIIC);
+                Internal::S3TCComputer::PackInterpolatedAlpha(options.flags, inputBlocks, 1, pBC + 8, 16, true, options.seedPoints, options.refineRoundsIIC);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }

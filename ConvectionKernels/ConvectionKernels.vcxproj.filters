@@ -23,5 +23,8 @@
     <ClInclude Include="ConvectionKernels.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="ConvectionKernels_BC7_SingleColor.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
