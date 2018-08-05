@@ -95,13 +95,11 @@ static CVTT::Options GenerateCVTTOptions(const TexCompressOptions &options)
     cvttOptions.alphaWeight = options.alphaWeight;
 
     if (options.flags & BC_FLAGS_FORCE_BC7_MODE6)
-        cvttOptions.flags &= ~(CVTT::Flags::BC7_EnablePartitioning);
+        cvttOptions.flags = CVTT::Flags::Fast;
     if (options.flags & BC_FLAGS_USE_3SUBSETS)
-        cvttOptions.flags |= CVTT::Flags::BC7_Enable3Subsets;
+        cvttOptions.flags = CVTT::Flags::Better;
     if (options.flags & BC_FLAGS_UNIFORM)
         cvttOptions.flags |= CVTT::Flags::Uniform;
-
-    cvttOptions.flags |= CVTT::Flags::S3TC_Exhaustive;
 
     return cvttOptions;
 }
