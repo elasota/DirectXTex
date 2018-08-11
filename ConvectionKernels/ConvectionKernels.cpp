@@ -2972,7 +2972,7 @@ namespace CVTT
                 Init<MUInt15, MUInt15>(channelWeights, endPoints, endPoints, range);
             }
 
-            void ReconstructLDR(const MUInt15 &index, MUInt15* pixel, int numRealChannels)
+            void ReconstructLDR_BC7(const MUInt15 &index, MUInt15* pixel, int numRealChannels)
             {
                 MUInt15 weight = ParallelMath::LosslessCast<MUInt15>::Cast(ParallelMath::RightShift(ParallelMath::CompactMultiply(g_weightReciprocals[m_range], index) + 256, 9));
 
@@ -2984,9 +2984,26 @@ namespace CVTT
                 }
             }
 
-            void ReconstructLDR(const MUInt15 &index, MUInt15* pixel)
+            void ReconstructLDRPrecise(const MUInt15 &index, MUInt15* pixel, int numRealChannels)
             {
-                ReconstructLDR(index, pixel, TVectorSize);
+                MUInt15 weight = ParallelMath::LosslessCast<MUInt15>::Cast(ParallelMath::RightShift(ParallelMath::CompactMultiply(g_weightReciprocals[m_range], index) + 64, 7));
+
+                for (int ch = 0; ch < numRealChannels; ch++)
+                {
+                    MUInt15 ep0f = ParallelMath::LosslessCast<MUInt15>::Cast(ParallelMath::CompactMultiply((ParallelMath::MakeUInt15(256) - weight), ParallelMath::LosslessCast<MUInt15>::Cast(m_endPoint[0][ch])));
+                    MUInt15 ep1f = ParallelMath::LosslessCast<MUInt15>::Cast(ParallelMath::CompactMultiply(weight, ParallelMath::LosslessCast<MUInt15>::Cast(m_endPoint[1][ch])));
+                    pixel[ch] = ParallelMath::LosslessCast<MUInt15>::Cast(ParallelMath::RightShift(ep0f + ep1f + ParallelMath::MakeUInt15(128), 8));
+                }
+            }
+
+            void ReconstructLDR_BC7(const MUInt15 &index, MUInt15* pixel)
+            {
+                ReconstructLDR_BC7(index, pixel, TVectorSize);
+            }
+
+            void ReconstructLDRPrecise(const MUInt15 &index, MUInt15* pixel)
+            {
+                ReconstructLDRPrecise(index, pixel, TVectorSize);
             }
 
             MUInt15 SelectIndexLDR(const MFloat* pixel, const ParallelMath::RoundTowardNearestForScope* rtn) const
@@ -4040,7 +4057,7 @@ namespace CVTT
                                         MUInt15 reconstructed[4];
 
                                         index = indexSelector.SelectIndexLDR(floatPixels[px], rtn);
-                                        indexSelector.ReconstructLDR(index, reconstructed, numRealChannels);
+                                        indexSelector.ReconstructLDR_BC7(index, reconstructed, numRealChannels);
 
                                         if (flags & CVTT::Flags::BC7_FastIndexing)
                                             BCCommon::ComputeErrorLDR<4>(flags, reconstructed, pixels[px], numRealChannels, aggError);
@@ -4054,7 +4071,7 @@ namespace CVTT
 
                                             for (int ii = 0; ii < 2; ii++)
                                             {
-                                                indexSelector.ReconstructLDR(altIndexes[ii], reconstructed, numRealChannels);
+                                                indexSelector.ReconstructLDR_BC7(altIndexes[ii], reconstructed, numRealChannels);
 
                                                 MFloat altError = BCCommon::ComputeErrorLDRSimple<4>(flags, reconstructed, pixels[px], numRealChannels, channelWeightsSq);
                                                 ParallelMath::Int16CompFlag better = ParallelMath::FloatFlagToInt16(ParallelMath::Less(altError, error));
@@ -4428,8 +4445,8 @@ namespace CVTT
                                         MUInt15 reconstructedRGB[3];
                                         MUInt15 reconstructedAlpha[1];
 
-                                        rgbIndexSelector.ReconstructLDR(rgbIndex, reconstructedRGB);
-                                        alphaIndexSelector.ReconstructLDR(alphaIndex, reconstructedAlpha);
+                                        rgbIndexSelector.ReconstructLDR_BC7(rgbIndex, reconstructedRGB);
+                                        alphaIndexSelector.ReconstructLDR_BC7(alphaIndex, reconstructedAlpha);
 
                                         if (flags & CVTT::Flags::BC7_FastIndexing)
                                         {
@@ -4458,8 +4475,8 @@ namespace CVTT
 
                                             for (int ii = 0; ii < 2; ii++)
                                             {
-                                                rgbIndexSelector.ReconstructLDR(altRGBIndexes[ii], reconstructedRGB);
-                                                alphaIndexSelector.ReconstructLDR(altAlphaIndexes[ii], reconstructedAlpha);
+                                                rgbIndexSelector.ReconstructLDR_BC7(altRGBIndexes[ii], reconstructedRGB);
+                                                alphaIndexSelector.ReconstructLDR_BC7(altAlphaIndexes[ii], reconstructedAlpha);
 
                                                 AggregatedError<3> altRGBAggError;
                                                 AggregatedError<1> altAlphaAggError;
@@ -5955,7 +5972,7 @@ namespace CVTT
                         refiner->ContributeUnweightedPW(preWeightedPixels[px], index);
 
                     MUInt15 reconstructed[3];
-                    selector.ReconstructLDR(index, reconstructed);
+                    selector.ReconstructLDRPrecise(index, reconstructed);
 
                     if (flags & Flags::S3TC_Paranoid)
                     {
@@ -6169,7 +6186,7 @@ namespace CVTT
 
                                 MUInt15 reconstructedPixel;
 
-                                indexSelector.ReconstructLDR(index, &reconstructedPixel);
+                                indexSelector.ReconstructLDRPrecise(index, &reconstructedPixel);
                                 BCCommon::ComputeErrorLDR<1>(flags, &reconstructedPixel, &pixels[px], aggError);
 
                                 if (refinePass != numRefineRounds - 1)
@@ -6322,7 +6339,7 @@ namespace CVTT
 
                                         MUInt15 reconstructedPixel;
 
-                                        indexSelector.ReconstructLDR(selectedIndex, &reconstructedPixel);
+                                        indexSelector.ReconstructLDRPrecise(selectedIndex, &reconstructedPixel);
 
                                         MFloat zeroError = BCCommon::ComputeErrorLDRSimple<1>(flags | Flags::Uniform, &zero, &pixels[px], 1, oneWeight);
                                         MFloat highTerminalError = BCCommon::ComputeErrorLDRSimple<1>(flags | Flags::Uniform, &highTerminal, &pixels[px], 1, oneWeight);
