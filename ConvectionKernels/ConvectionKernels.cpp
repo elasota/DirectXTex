@@ -753,6 +753,7 @@ namespace CVTT
                 result.m_value = _mm_set1_epi16(-1);
             else
                 result.m_value = _mm_setzero_si128();
+            return result;
         }
 
         static FloatCompFlag MakeBoolFloat(bool b)
@@ -762,6 +763,7 @@ namespace CVTT
                 result.m_values[0] = result.m_values[1] = _mm_castsi128_ps(_mm_set1_epi32(-1));
             else
                 result.m_values[0] = result.m_values[1] = _mm_setzero_ps();
+            return result;
         }
 
         static Int16CompFlag AndNot(const Int16CompFlag &a, const Int16CompFlag &b)
@@ -3121,7 +3123,7 @@ namespace CVTT
 
                 m_range = range;
 
-                m_isInverted = ParallelMath::Less(ParallelMath::MakeUInt15(0), ParallelMath::MakeUInt15(0));
+                m_isInverted = ParallelMath::MakeBoolInt16(false);
                 m_maxValueMinusOne = ParallelMath::MakeUInt15(static_cast<uint16_t>(range - 1));
 
                 if (!fastIndexing)
@@ -3662,7 +3664,7 @@ namespace CVTT
                 MFloat shapeBestError[BC7Data::g_maxFragmentsPerMode];
             };
 
-            static void TrySingleColorRGBAMultiTable(uint32_t flags, const MUInt15 pixels[16][4], const MFloat average[4], int numRealChannels, const uint8_t *fragmentStart, int shapeLength, const MFloat &staticAlphaError, MFloat& shapeBestError, MUInt15 shapeBestEP[2][4], MUInt15 *fragmentBestIndexes, const float *channelWeightsSq, const CVTT::Tables::BC7SC::Table*const* tables, int numTables, const ParallelMath::RoundTowardNearestForScope *rtn)
+            static void TrySingleColorRGBAMultiTable(uint32_t flags, const MUInt15 pixels[16][4], const MFloat average[4], int numRealChannels, const uint8_t *fragmentStart, int shapeLength, const MFloat &staticAlphaError, const ParallelMath::Int16CompFlag punchThroughInvalid[4], MFloat& shapeBestError, MUInt15 shapeBestEP[2][4], MUInt15 *fragmentBestIndexes, const float *channelWeightsSq, const CVTT::Tables::BC7SC::Table*const* tables, int numTables, const ParallelMath::RoundTowardNearestForScope *rtn)
             {
                 MFloat bestAverageError = ParallelMath::MakeFloat(FLT_MAX);
 
@@ -3692,6 +3694,8 @@ namespace CVTT
                 {
                     const CVTT::Tables::BC7SC::Table& table = *(tables[t]);
 
+                    ParallelMath::Int16CompFlag pti = punchThroughInvalid[table.m_pBits];
+
                     MUInt15 candidateReconstructed[4];
                     MUInt15 candidateEPs[2][4];
 
@@ -3717,21 +3721,23 @@ namespace CVTT
                         avgError = avgError + delta * delta * channelWeightsSq[ch];
                     }
 
-                    ParallelMath::Int16CompFlag avgBetter = ParallelMath::FloatFlagToInt16(ParallelMath::Less(avgError, bestAverageError));
-                    if (ParallelMath::AnySet(avgBetter))
+                    ParallelMath::Int16CompFlag better = ParallelMath::FloatFlagToInt16(ParallelMath::Less(avgError, bestAverageError));
+                    better = ParallelMath::AndNot(pti, better); // Mask out punch-through invalidations
+
+                    if (ParallelMath::AnySet(better))
                     {
-                        bestAverageError = ParallelMath::Min(avgError, bestAverageError);
+                        ParallelMath::ConditionalSet(bestAverageError, ParallelMath::Int16FlagToFloat(better), avgError);
 
                         MUInt15 candidateIndex = ParallelMath::MakeUInt15(table.m_index);
 
-                        ParallelMath::ConditionalSet(index, avgBetter, candidateIndex);
+                        ParallelMath::ConditionalSet(index, better, candidateIndex);
 
                         for (int ch = 0; ch < numRealChannels; ch++)
-                            ParallelMath::ConditionalSet(reconstructed[ch], avgBetter, candidateReconstructed[ch]);
+                            ParallelMath::ConditionalSet(reconstructed[ch], better, candidateReconstructed[ch]);
 
                         for (int epi = 0; epi < 2; epi++)
                             for (int ch = 0; ch < numRealChannels; ch++)
-                                ParallelMath::ConditionalSet(eps[epi][ch], avgBetter, candidateEPs[epi][ch]);
+                                ParallelMath::ConditionalSet(eps[epi][ch], better, candidateEPs[epi][ch]);
                     }
                 }
 
@@ -3748,7 +3754,7 @@ namespace CVTT
                 ParallelMath::Int16CompFlag better = ParallelMath::FloatFlagToInt16(ParallelMath::Less(error, shapeBestError));
                 if (ParallelMath::AnySet(better))
                 {
-                    shapeBestError = ParallelMath::Min(error, shapeBestError);
+                    shapeBestError = ParallelMath::Min(shapeBestError, error);
                     for (int epi = 0; epi < 2; epi++)
                     {
                         for (int ch = 0; ch < numRealChannels; ch++)
@@ -3780,13 +3786,20 @@ namespace CVTT
 
                 MUInt15 maxAlpha = ParallelMath::MakeUInt15(0);
                 MUInt15 minAlpha = ParallelMath::MakeUInt15(255);
+                ParallelMath::Int16CompFlag isPunchThrough = ParallelMath::MakeBoolInt16(true);
                 for (int px = 0; px < 16; px++)
                 {
-                    maxAlpha = ParallelMath::Max(maxAlpha, pixels[px][3]);
-                    minAlpha = ParallelMath::Min(minAlpha, pixels[px][3]);
+                    MUInt15 a = pixels[px][3];
+                    maxAlpha = ParallelMath::Max(maxAlpha, a);
+                    minAlpha = ParallelMath::Min(minAlpha, a);
+
+                    isPunchThrough = (isPunchThrough & (ParallelMath::Equal(a, ParallelMath::MakeUInt15(0)) | ParallelMath::Equal(a, ParallelMath::MakeUInt15(255))));
                 }
 
-                bool anyBlockHasAlpha = ParallelMath::AnySet(ParallelMath::Less(minAlpha, ParallelMath::MakeUInt15(255)));
+                ParallelMath::Int16CompFlag blockHasNonMaxAlpha = ParallelMath::Less(minAlpha, ParallelMath::MakeUInt15(255));
+                ParallelMath::Int16CompFlag blockHasNonZeroAlpha = ParallelMath::Less(ParallelMath::MakeUInt15(0), maxAlpha);
+
+                bool anyBlockHasAlpha = ParallelMath::AnySet(blockHasNonMaxAlpha);
 
                 // Try RGB modes if any block has a min alpha 251 or higher
                 bool allowRGBModes = ParallelMath::AnySet(ParallelMath::Less(ParallelMath::MakeUInt15(250), minAlpha));
@@ -3997,8 +4010,30 @@ namespace CVTT
                             }
                         }
 
+                        ParallelMath::Int16CompFlag punchThroughInvalid[4];
                         for (int pIter = 0; pIter < parityBitMax; pIter++)
                         {
+                            punchThroughInvalid[pIter] = ParallelMath::MakeBoolInt16(false);
+
+                            if ((flags & Flags::BC7_RespectPunchThrough) && (mode == 6 || mode == 7))
+                            {
+                                // Modes 6 and 7 have parity bits that affect alpha
+                                if (pIter == 0)
+                                    punchThroughInvalid[pIter] = (isPunchThrough & blockHasNonZeroAlpha);
+                                else if (pIter == parityBitMax - 1)
+                                    punchThroughInvalid[pIter] = (isPunchThrough & blockHasNonMaxAlpha);
+                                else
+                                    punchThroughInvalid[pIter] = isPunchThrough;
+                            }
+                        }
+
+                        for (int pIter = 0; pIter < parityBitMax; pIter++)
+                        {
+                            if (ParallelMath::AllSet(punchThroughInvalid[pIter]))
+                                continue;
+
+                            bool needPunchThroughCheck = ParallelMath::AnySet(punchThroughInvalid[pIter]);
+
                             for (int tweak = 0; tweak < numTweakRounds; tweak++)
                             {
                                 uint16_t p[2];
@@ -4102,13 +4137,26 @@ namespace CVTT
 
                                     if (ParallelMath::AnySet(shapeErrorBetter16))
                                     {
-                                        ParallelMath::ConditionalSet(temps.shapeBestError[shapeCollapsedEvalIndex], shapeErrorBetter, shapeError);
-                                        for (int epi = 0; epi < 2; epi++)
-                                            for (int ch = 0; ch < numRealChannels; ch++)
-                                                ParallelMath::ConditionalSet(temps.shapeBestEP[shapeCollapsedEvalIndex][epi][ch], shapeErrorBetter16, ep[epi][ch]);
+                                        bool punchThroughOK = true;
+                                        if (needPunchThroughCheck)
+                                        {
+                                            shapeErrorBetter16 = ParallelMath::AndNot(punchThroughInvalid[pIter], shapeErrorBetter16);
+                                            shapeErrorBetter = ParallelMath::Int16FlagToFloat(shapeErrorBetter16);
 
-                                        for (int pxi = 0; pxi < shapeLength; pxi++)
-                                            ParallelMath::ConditionalSet(temps.fragmentBestIndexes[shapeStart + pxi], shapeErrorBetter16, indexes[pxi]);
+                                            if (!ParallelMath::AnySet(shapeErrorBetter16))
+                                                punchThroughOK = false;
+                                        }
+
+                                        if (punchThroughOK)
+                                        {
+                                            ParallelMath::ConditionalSet(temps.shapeBestError[shapeCollapsedEvalIndex], shapeErrorBetter, shapeError);
+                                            for (int epi = 0; epi < 2; epi++)
+                                                for (int ch = 0; ch < numRealChannels; ch++)
+                                                    ParallelMath::ConditionalSet(temps.shapeBestEP[shapeCollapsedEvalIndex][epi][ch], shapeErrorBetter16, ep[epi][ch]);
+
+                                            for (int pxi = 0; pxi < shapeLength; pxi++)
+                                                ParallelMath::ConditionalSet(temps.fragmentBestIndexes[shapeStart + pxi], shapeErrorBetter16, indexes[pxi]);
+                                        }
                                     }
 
                                     if (refine != numRefineRounds - 1)
@@ -4243,7 +4291,7 @@ namespace CVTT
                                 break;
                             }
 
-                            TrySingleColorRGBAMultiTable(flags, pixels, average, numRealChannels, fragment, shapeLength, staticAlphaError, shapeBestError, shapeBestEP, fragmentBestIndexes, channelWeightsSq, scTables, numSCTables, rtn);
+                            TrySingleColorRGBAMultiTable(flags, pixels, average, numRealChannels, fragment, shapeLength, staticAlphaError, punchThroughInvalid, shapeBestError, shapeBestEP, fragmentBestIndexes, channelWeightsSq, scTables, numSCTables, rtn);
                         }
                     } // shapeIter
 
@@ -5014,7 +5062,7 @@ namespace CVTT
 
             static void EvaluatePartitionedLegality(const MAInt16 ep0[2][3], const MAInt16 ep1[2][3], int aPrec, const int bPrec[3], bool isTransformed, MAInt16 outEncodedEPs[2][2][3], ParallelMath::Int16CompFlag& outIsLegal)
             {
-                ParallelMath::Int16CompFlag allLegal = ParallelMath::Equal(ParallelMath::MakeUInt16(0), ParallelMath::MakeUInt16(0));
+                ParallelMath::Int16CompFlag allLegal = ParallelMath::MakeBoolInt16(true);
 
                 MAInt16 aSignificantMask = ParallelMath::MakeAInt16(static_cast<int16_t>((1 << aPrec) - 1));
 
@@ -5055,7 +5103,7 @@ namespace CVTT
 
             static void EvaluateSingleLegality(const MAInt16 ep[2][3], int aPrec, const int bPrec[3], bool isTransformed, MAInt16 outEncodedEPs[2][3], ParallelMath::Int16CompFlag& outIsLegal)
             {
-                ParallelMath::Int16CompFlag allLegal = ParallelMath::Equal(ParallelMath::MakeUInt16(0), ParallelMath::MakeUInt16(0));
+                ParallelMath::Int16CompFlag allLegal = ParallelMath::MakeBoolInt16(true);
 
                 MAInt16 aSignificantMask = ParallelMath::MakeAInt16(static_cast<int16_t>((1 << aPrec) - 1));
 
@@ -5270,13 +5318,13 @@ namespace CVTT
 
                                         if (metaRound > 0)
                                         {
-                                            ParallelMath::Int16CompFlag anySame = ParallelMath::Less(ParallelMath::MakeUInt15(0), ParallelMath::MakeUInt15(0));
+                                            ParallelMath::Int16CompFlag anySame = ParallelMath::MakeBoolInt16(false);
 
                                             for (int prevRound = 0; prevRound < metaRound; prevRound++)
                                             {
                                                 MAInt16(&prevRoundEPs)[2][3] = metaEndPointsQuantized[prevRound][subset];
 
-                                                ParallelMath::Int16CompFlag same = ParallelMath::Equal(ParallelMath::MakeUInt15(0), ParallelMath::MakeUInt15(0));
+                                                ParallelMath::Int16CompFlag same = ParallelMath::MakeBoolInt16(true);
 
                                                 for (int epi = 0; epi < 2; epi++)
                                                     for (int ch = 0; ch < 3; ch++)

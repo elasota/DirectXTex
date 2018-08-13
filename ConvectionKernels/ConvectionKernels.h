@@ -23,17 +23,20 @@ namespace CVTT
         // Try precomputed single-color lookups where applicable (slightly slower, small quality increase on specific blocks)
         const uint32_t BC7_TrySingleColor       = 0x010;
 
+        // Don't allow non-zero or non-max alpha values in blocks that only contain one or the other
+        const uint32_t BC7_RespectPunchThrough  = 0x020;
+
         // Use fast indexing in HDR formats (faster, worse quality)
-        const uint32_t BC6H_FastIndexing        = 0x020;
+        const uint32_t BC6H_FastIndexing        = 0x040;
 
         // Exhaustive search RGB orderings when encoding BC1-BC3 (much slower, better quality)
-        const uint32_t S3TC_Exhaustive          = 0x040;
+        const uint32_t S3TC_Exhaustive          = 0x080;
 
         // Penalize distant endpoints, improving quality on inaccurate GPU decoders
-        const uint32_t S3TC_Paranoid            = 0x080;
+        const uint32_t S3TC_Paranoid            = 0x100;
 
         // Uniform color channel importance
-        const uint32_t Uniform                  = 0x100;
+        const uint32_t Uniform                  = 0x200;
 
         // Misc useful default flag combinations
         const uint32_t Fastest = (BC6H_FastIndexing | S3TC_Paranoid);

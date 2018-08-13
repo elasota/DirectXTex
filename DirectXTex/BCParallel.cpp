@@ -101,6 +101,8 @@ static CVTT::Options GenerateCVTTOptions(const TexCompressOptions &options)
     if (options.flags & BC_FLAGS_UNIFORM)
         cvttOptions.flags |= CVTT::Flags::Uniform;
 
+    cvttOptions.flags |= CVTT::Flags::BC7_RespectPunchThrough;
+
     return cvttOptions;
 }
 
