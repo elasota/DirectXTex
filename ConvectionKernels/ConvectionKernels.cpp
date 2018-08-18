@@ -31,7 +31,7 @@ http://go.microsoft.com/fwlink/?LinkId=248926
 #include "ConvectionKernels.h"
 #include "ConvectionKernels_BC7_SingleColor.h"
 
-#if (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(_M_X64)
+#if (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(_M_X64) || defined(__SSE2__)
 #define CVTT_USE_SSE2
 #endif
 
