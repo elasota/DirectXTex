@@ -46,7 +46,7 @@ http://go.microsoft.com/fwlink/?LinkId=248926
 
 #define UNREFERENCED_PARAMETER(n) ((void)n)
 
-namespace CVTT
+namespace cvtt
 {
 #ifdef CVTT_USE_SSE2
     // SSE2 version
@@ -3374,7 +3374,7 @@ namespace CVTT
 
             MFloat Finalize(uint32_t flags, const float channelWeightsSq[TVectorSize]) const
             {
-                if (flags & CVTT::Flags::Uniform)
+                if (flags & cvtt::Flags::Uniform)
                 {
                     MUInt31 total = m_errorUnweighted[0];
                     for (int ch = 1; ch < TVectorSize; ch++)
@@ -3664,7 +3664,7 @@ namespace CVTT
                 MFloat shapeBestError[BC7Data::g_maxFragmentsPerMode];
             };
 
-            static void TrySingleColorRGBAMultiTable(uint32_t flags, const MUInt15 pixels[16][4], const MFloat average[4], int numRealChannels, const uint8_t *fragmentStart, int shapeLength, const MFloat &staticAlphaError, const ParallelMath::Int16CompFlag punchThroughInvalid[4], MFloat& shapeBestError, MUInt15 shapeBestEP[2][4], MUInt15 *fragmentBestIndexes, const float *channelWeightsSq, const CVTT::Tables::BC7SC::Table*const* tables, int numTables, const ParallelMath::RoundTowardNearestForScope *rtn)
+            static void TrySingleColorRGBAMultiTable(uint32_t flags, const MUInt15 pixels[16][4], const MFloat average[4], int numRealChannels, const uint8_t *fragmentStart, int shapeLength, const MFloat &staticAlphaError, const ParallelMath::Int16CompFlag punchThroughInvalid[4], MFloat& shapeBestError, MUInt15 shapeBestEP[2][4], MUInt15 *fragmentBestIndexes, const float *channelWeightsSq, const cvtt::Tables::BC7SC::Table*const* tables, int numTables, const ParallelMath::RoundTowardNearestForScope *rtn)
             {
                 MFloat bestAverageError = ParallelMath::MakeFloat(FLT_MAX);
 
@@ -3692,7 +3692,7 @@ namespace CVTT
                 MFloat epsAverageDiff = ParallelMath::MakeFloat(FLT_MAX);
                 for (int t = 0; t < numTables; t++)
                 {
-                    const CVTT::Tables::BC7SC::Table& table = *(tables[t]);
+                    const cvtt::Tables::BC7SC::Table& table = *(tables[t]);
 
                     ParallelMath::Int16CompFlag pti = punchThroughInvalid[table.m_pBits];
 
@@ -3706,7 +3706,7 @@ namespace CVTT
                             ParallelMath::ScalarUInt16 avgValue = ParallelMath::Extract(intAverage[ch], i);
                             assert(avgValue >= 0 && avgValue <= 255);
 
-                            const CVTT::Tables::BC7SC::TableEntry &entry = table.m_entries[avgValue];
+                            const cvtt::Tables::BC7SC::TableEntry &entry = table.m_entries[avgValue];
 
                             ParallelMath::PutUInt15(candidateEPs[0][ch], i, entry.m_min);
                             ParallelMath::PutUInt15(candidateEPs[1][ch], i, entry.m_max);
@@ -4094,7 +4094,7 @@ namespace CVTT
                                         index = indexSelector.SelectIndexLDR(floatPixels[px], rtn);
                                         indexSelector.ReconstructLDR_BC7(index, reconstructed, numRealChannels);
 
-                                        if (flags & CVTT::Flags::BC7_FastIndexing)
+                                        if (flags & cvtt::Flags::BC7_FastIndexing)
                                             BCCommon::ComputeErrorLDR<4>(flags, reconstructed, pixels[px], numRealChannels, aggError);
                                         else
                                         {
@@ -4123,7 +4123,7 @@ namespace CVTT
                                         indexes[pxi] = index;
                                     }
 
-                                    if (flags & CVTT::Flags::BC7_FastIndexing)
+                                    if (flags & cvtt::Flags::BC7_FastIndexing)
                                         shapeError = aggError.Finalize(flags, channelWeightsSq);
 
                                     if (isRGB)
@@ -4165,7 +4165,7 @@ namespace CVTT
                             } // tweak
                         } // p
 
-                        if (flags & CVTT::Flags::BC7_TrySingleColor)
+                        if (flags & cvtt::Flags::BC7_TrySingleColor)
                         {
                             MUInt15 total[4];
                             for (int ch = 0; ch < 4; ch++)
@@ -4188,27 +4188,27 @@ namespace CVTT
                             MUInt15(&shapeBestEP)[2][4] = temps.shapeBestEP[shapeCollapsedEvalIndex];
                             MUInt15 *fragmentBestIndexes = temps.fragmentBestIndexes + shapeStart;
 
-                            const CVTT::Tables::BC7SC::Table **scTables = NULL;
+                            const cvtt::Tables::BC7SC::Table **scTables = NULL;
                             int numSCTables = 0;
 
                             switch (mode)
                             {
                             case 0:
                                 {
-                                    const CVTT::Tables::BC7SC::Table *tables[] =
+                                    const cvtt::Tables::BC7SC::Table *tables[] =
                                     {
-                                        &CVTT::Tables::BC7SC::g_mode0_p00_i1,
-                                        &CVTT::Tables::BC7SC::g_mode0_p00_i2,
-                                        &CVTT::Tables::BC7SC::g_mode0_p00_i3,
-                                        &CVTT::Tables::BC7SC::g_mode0_p01_i1,
-                                        &CVTT::Tables::BC7SC::g_mode0_p01_i2,
-                                        &CVTT::Tables::BC7SC::g_mode0_p01_i3,
-                                        &CVTT::Tables::BC7SC::g_mode0_p10_i1,
-                                        &CVTT::Tables::BC7SC::g_mode0_p10_i2,
-                                        &CVTT::Tables::BC7SC::g_mode0_p10_i3,
-                                        &CVTT::Tables::BC7SC::g_mode0_p11_i1,
-                                        &CVTT::Tables::BC7SC::g_mode0_p11_i2,
-                                        &CVTT::Tables::BC7SC::g_mode0_p11_i3,
+                                        &cvtt::Tables::BC7SC::g_mode0_p00_i1,
+                                        &cvtt::Tables::BC7SC::g_mode0_p00_i2,
+                                        &cvtt::Tables::BC7SC::g_mode0_p00_i3,
+                                        &cvtt::Tables::BC7SC::g_mode0_p01_i1,
+                                        &cvtt::Tables::BC7SC::g_mode0_p01_i2,
+                                        &cvtt::Tables::BC7SC::g_mode0_p01_i3,
+                                        &cvtt::Tables::BC7SC::g_mode0_p10_i1,
+                                        &cvtt::Tables::BC7SC::g_mode0_p10_i2,
+                                        &cvtt::Tables::BC7SC::g_mode0_p10_i3,
+                                        &cvtt::Tables::BC7SC::g_mode0_p11_i1,
+                                        &cvtt::Tables::BC7SC::g_mode0_p11_i2,
+                                        &cvtt::Tables::BC7SC::g_mode0_p11_i3,
                                     };
                                     scTables = tables;
                                     numSCTables = sizeof(tables) / sizeof(tables[0]);
@@ -4216,14 +4216,14 @@ namespace CVTT
                                 break;
                             case 1:
                                 {
-                                    const CVTT::Tables::BC7SC::Table *tables[] =
+                                    const cvtt::Tables::BC7SC::Table *tables[] =
                                     {
-                                        &CVTT::Tables::BC7SC::g_mode1_p0_i1,
-                                        &CVTT::Tables::BC7SC::g_mode1_p0_i2,
-                                        &CVTT::Tables::BC7SC::g_mode1_p0_i3,
-                                        &CVTT::Tables::BC7SC::g_mode1_p1_i1,
-                                        &CVTT::Tables::BC7SC::g_mode1_p1_i2,
-                                        &CVTT::Tables::BC7SC::g_mode1_p1_i3,
+                                        &cvtt::Tables::BC7SC::g_mode1_p0_i1,
+                                        &cvtt::Tables::BC7SC::g_mode1_p0_i2,
+                                        &cvtt::Tables::BC7SC::g_mode1_p0_i3,
+                                        &cvtt::Tables::BC7SC::g_mode1_p1_i1,
+                                        &cvtt::Tables::BC7SC::g_mode1_p1_i2,
+                                        &cvtt::Tables::BC7SC::g_mode1_p1_i3,
                                     };
                                     scTables = tables;
                                     numSCTables = sizeof(tables) / sizeof(tables[0]);
@@ -4231,9 +4231,9 @@ namespace CVTT
                                 break;
                             case 2:
                                 {
-                                    const CVTT::Tables::BC7SC::Table *tables[] =
+                                    const cvtt::Tables::BC7SC::Table *tables[] =
                                     {
-                                        &CVTT::Tables::BC7SC::g_mode2,
+                                        &cvtt::Tables::BC7SC::g_mode2,
                                     };
                                     scTables = tables;
                                     numSCTables = sizeof(tables) / sizeof(tables[0]);
@@ -4241,10 +4241,10 @@ namespace CVTT
                                 break;
                             case 3:
                                 {
-                                    const CVTT::Tables::BC7SC::Table *tables[] =
+                                    const cvtt::Tables::BC7SC::Table *tables[] =
                                     {
-                                        &CVTT::Tables::BC7SC::g_mode3_p0,
-                                        &CVTT::Tables::BC7SC::g_mode3_p1,
+                                        &cvtt::Tables::BC7SC::g_mode3_p0,
+                                        &cvtt::Tables::BC7SC::g_mode3_p1,
                                     };
                                     scTables = tables;
                                     numSCTables = sizeof(tables) / sizeof(tables[0]);
@@ -4252,22 +4252,22 @@ namespace CVTT
                                 break;
                             case 6:
                                 {
-                                    const CVTT::Tables::BC7SC::Table *tables[] =
+                                    const cvtt::Tables::BC7SC::Table *tables[] =
                                     {
-                                        &CVTT::Tables::BC7SC::g_mode6_p0_i1,
-                                        &CVTT::Tables::BC7SC::g_mode6_p0_i2,
-                                        &CVTT::Tables::BC7SC::g_mode6_p0_i3,
-                                        &CVTT::Tables::BC7SC::g_mode6_p0_i4,
-                                        &CVTT::Tables::BC7SC::g_mode6_p0_i5,
-                                        &CVTT::Tables::BC7SC::g_mode6_p0_i6,
-                                        &CVTT::Tables::BC7SC::g_mode6_p0_i7,
-                                        &CVTT::Tables::BC7SC::g_mode6_p1_i1,
-                                        &CVTT::Tables::BC7SC::g_mode6_p1_i2,
-                                        &CVTT::Tables::BC7SC::g_mode6_p1_i3,
-                                        &CVTT::Tables::BC7SC::g_mode6_p1_i4,
-                                        &CVTT::Tables::BC7SC::g_mode6_p1_i5,
-                                        &CVTT::Tables::BC7SC::g_mode6_p1_i6,
-                                        &CVTT::Tables::BC7SC::g_mode6_p1_i7,
+                                        &cvtt::Tables::BC7SC::g_mode6_p0_i1,
+                                        &cvtt::Tables::BC7SC::g_mode6_p0_i2,
+                                        &cvtt::Tables::BC7SC::g_mode6_p0_i3,
+                                        &cvtt::Tables::BC7SC::g_mode6_p0_i4,
+                                        &cvtt::Tables::BC7SC::g_mode6_p0_i5,
+                                        &cvtt::Tables::BC7SC::g_mode6_p0_i6,
+                                        &cvtt::Tables::BC7SC::g_mode6_p0_i7,
+                                        &cvtt::Tables::BC7SC::g_mode6_p1_i1,
+                                        &cvtt::Tables::BC7SC::g_mode6_p1_i2,
+                                        &cvtt::Tables::BC7SC::g_mode6_p1_i3,
+                                        &cvtt::Tables::BC7SC::g_mode6_p1_i4,
+                                        &cvtt::Tables::BC7SC::g_mode6_p1_i5,
+                                        &cvtt::Tables::BC7SC::g_mode6_p1_i6,
+                                        &cvtt::Tables::BC7SC::g_mode6_p1_i7,
                                     };
                                     scTables = tables;
                                     numSCTables = sizeof(tables) / sizeof(tables[0]);
@@ -4275,12 +4275,12 @@ namespace CVTT
                                 break;
                             case 7:
                                 {
-                                    const CVTT::Tables::BC7SC::Table *tables[] =
+                                    const cvtt::Tables::BC7SC::Table *tables[] =
                                     {
-                                        &CVTT::Tables::BC7SC::g_mode7_p00,
-                                        &CVTT::Tables::BC7SC::g_mode7_p01,
-                                        &CVTT::Tables::BC7SC::g_mode7_p10,
-                                        &CVTT::Tables::BC7SC::g_mode7_p11,
+                                        &cvtt::Tables::BC7SC::g_mode7_p00,
+                                        &cvtt::Tables::BC7SC::g_mode7_p01,
+                                        &cvtt::Tables::BC7SC::g_mode7_p10,
+                                        &cvtt::Tables::BC7SC::g_mode7_p11,
                                     };
                                     scTables = tables;
                                     numSCTables = sizeof(tables) / sizeof(tables[0]);
@@ -4496,7 +4496,7 @@ namespace CVTT
                                         rgbIndexSelector.ReconstructLDR_BC7(rgbIndex, reconstructedRGB);
                                         alphaIndexSelector.ReconstructLDR_BC7(alphaIndex, reconstructedAlpha);
 
-                                        if (flags & CVTT::Flags::BC7_FastIndexing)
+                                        if (flags & cvtt::Flags::BC7_FastIndexing)
                                         {
                                             BCCommon::ComputeErrorLDR<3>(flags, reconstructedRGB, rotatedRGB[px], rgbAggError);
                                             BCCommon::ComputeErrorLDR<1>(flags, reconstructedAlpha, pixels[px] + alphaChannel, alphaAggError);
@@ -5140,7 +5140,7 @@ namespace CVTT
                 else if (numRefineRounds > MaxRefineRounds)
                     numRefineRounds = MaxRefineRounds;
 
-                bool fastIndexing = (flags & CVTT::Flags::BC6H_FastIndexing);
+                bool fastIndexing = (flags & cvtt::Flags::BC6H_FastIndexing);
                 float channelWeightsSq[3];
 
                 ParallelMath::RoundTowardNearestForScope rtn;
@@ -5898,7 +5898,7 @@ namespace CVTT
 
                 const S3TCSingleColorTables::SingleColorTableEntry* rbTable = NULL;
                 const S3TCSingleColorTables::SingleColorTableEntry* gTable = NULL;
-                if (flags & CVTT::Flags::S3TC_Paranoid)
+                if (flags & cvtt::Flags::S3TC_Paranoid)
                 {
                     if (range == 4)
                     {
@@ -5944,7 +5944,7 @@ namespace CVTT
                 }
 
                 MFloat error = ParallelMath::MakeFloatZero();
-                if (flags & CVTT::Flags::S3TC_Paranoid)
+                if (flags & cvtt::Flags::S3TC_Paranoid)
                 {
                     MFloat spanParanoidFactors[3];
                     for (int ch = 0; ch < 3; ch++)
@@ -6880,7 +6880,7 @@ namespace CVTT
 
     namespace Kernels
     {
-        void EncodeBC7(uint8_t *pBC, const InputBlockU8 *pBlocks, const CVTT::Options &options)
+        void EncodeBC7(uint8_t *pBC, const InputBlockU8 *pBlocks, const cvtt::Options &options)
         {
             assert(pBlocks);
             assert(pBC);
@@ -6888,14 +6888,14 @@ namespace CVTT
             float channelWeights[4];
             Internal::FillWeights(options, channelWeights);
 
-            for (size_t blockBase = 0; blockBase < CVTT::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
+            for (size_t blockBase = 0; blockBase < cvtt::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
                 Internal::BC7Computer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, options.seedPoints, options.refineRoundsBC7);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
 
-        void EncodeBC6HU(uint8_t *pBC, const InputBlockF16 *pBlocks, const CVTT::Options &options)
+        void EncodeBC6HU(uint8_t *pBC, const InputBlockF16 *pBlocks, const cvtt::Options &options)
         {
             assert(pBlocks);
             assert(pBC);
@@ -6903,14 +6903,14 @@ namespace CVTT
             float channelWeights[4];
             Internal::FillWeights(options, channelWeights);
 
-            for (size_t blockBase = 0; blockBase < CVTT::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
+            for (size_t blockBase = 0; blockBase < cvtt::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
                 Internal::BC6HComputer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, false, options.seedPoints, options.refineRoundsBC6H);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
 
-        void EncodeBC6HS(uint8_t *pBC, const InputBlockF16 *pBlocks, const CVTT::Options &options)
+        void EncodeBC6HS(uint8_t *pBC, const InputBlockF16 *pBlocks, const cvtt::Options &options)
         {
             assert(pBlocks);
             assert(pBC);
@@ -6918,14 +6918,14 @@ namespace CVTT
             float channelWeights[4];
             Internal::FillWeights(options, channelWeights);
 
-            for (size_t blockBase = 0; blockBase < CVTT::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
+            for (size_t blockBase = 0; blockBase < cvtt::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
                 Internal::BC6HComputer::Pack(options.flags, pBlocks + blockBase, pBC, channelWeights, true, options.seedPoints, options.refineRoundsBC6H);
                 pBC += ParallelMath::ParallelSize * 16;
             }
         }
 
-        void EncodeBC1(uint8_t *pBC, const InputBlockU8 *pBlocks, const CVTT::Options &options)
+        void EncodeBC1(uint8_t *pBC, const InputBlockU8 *pBlocks, const cvtt::Options &options)
         {
             assert(pBlocks);
             assert(pBC);
@@ -6933,7 +6933,7 @@ namespace CVTT
             float channelWeights[4];
             Internal::FillWeights(options, channelWeights);
 
-            for (size_t blockBase = 0; blockBase < CVTT::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
+            for (size_t blockBase = 0; blockBase < cvtt::NumParallelBlocks; blockBase += ParallelMath::ParallelSize)
             {
                 Internal::S3TCComputer::PackRGB(options.flags, pBlocks + blockBase, pBC, 8, channelWeights, true, options.threshold, (options.flags & Flags::S3TC_Exhaustive) != 0, options.seedPoints, options.refineRoundsS3TC);
                 pBC += ParallelMath::ParallelSize * 8;

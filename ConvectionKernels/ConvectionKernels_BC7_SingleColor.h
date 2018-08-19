@@ -1,7 +1,7 @@
 #pragma once
 #include <stdint.h>
 
-namespace CVTT { namespace Tables { namespace BC7SC {
+namespace cvtt { namespace Tables { namespace BC7SC {
 
 struct TableEntry
 {

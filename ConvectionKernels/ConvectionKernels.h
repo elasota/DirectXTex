@@ -4,7 +4,7 @@
 
 #include <stdint.h>
 
-namespace CVTT
+namespace cvtt
 {
     namespace Flags
     {
@@ -51,7 +51,7 @@ namespace CVTT
 
     struct Options
     {
-        uint32_t flags;         // Bitmask of CVTT::Flags values
+        uint32_t flags;         // Bitmask of cvtt::Flags values
         float threshold;        // Alpha test threshold for BC1
         float redWeight;        // Red channel importance
         float greenWeight;      // Green channel importance
