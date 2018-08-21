@@ -82,19 +82,19 @@ namespace cvtt
     };
 
     // RGBA input block for unsigned 8-bit formats
-    struct InputBlockU8
+    struct PixelBlockU8
     {
         uint8_t m_pixels[16][4];
     };
 
     // RGBA input block for signed 8-bit formats
-    struct InputBlockS8
+    struct PixelBlockS8
     {
         int8_t m_pixels[16][4];
     };
 
     // RGBA input block for half-precision float formats (bit-cast to int16_t)
-    struct InputBlockF16
+    struct PixelBlockF16
     {
         int16_t m_pixels[16][4];
     };
@@ -102,16 +102,20 @@ namespace cvtt
     namespace Kernels
     {
         // NOTE: All functions accept and output NumParallelBlocks blocks at once
-        void EncodeBC1(uint8_t *pBC, const InputBlockU8 *pBlocks, const Options &options);
-        void EncodeBC2(uint8_t *pBC, const InputBlockU8 *pBlocks, const Options &options);
-        void EncodeBC3(uint8_t *pBC, const InputBlockU8 *pBlocks, const Options &options);
-        void EncodeBC4U(uint8_t *pBC, const InputBlockU8 *pBlocks, const Options &options);
-        void EncodeBC4S(uint8_t *pBC, const InputBlockS8 *pBlocks, const Options &options);
-        void EncodeBC5U(uint8_t *pBC, const InputBlockU8 *pBlocks, const Options &options);
-        void EncodeBC5S(uint8_t *pBC, const InputBlockS8 *pBlocks, const Options &options);
-        void EncodeBC6HU(uint8_t *pBC, const InputBlockF16 *pBlocks, const Options &options);
-        void EncodeBC6HS(uint8_t *pBC, const InputBlockF16 *pBlocks, const Options &options);
-        void EncodeBC7(uint8_t *pBC, const InputBlockU8 *pBlocks, const Options &options);
+        void EncodeBC1(uint8_t *pBC, const PixelBlockU8 *pBlocks, const Options &options);
+        void EncodeBC2(uint8_t *pBC, const PixelBlockU8 *pBlocks, const Options &options);
+        void EncodeBC3(uint8_t *pBC, const PixelBlockU8 *pBlocks, const Options &options);
+        void EncodeBC4U(uint8_t *pBC, const PixelBlockU8 *pBlocks, const Options &options);
+        void EncodeBC4S(uint8_t *pBC, const PixelBlockS8 *pBlocks, const Options &options);
+        void EncodeBC5U(uint8_t *pBC, const PixelBlockU8 *pBlocks, const Options &options);
+        void EncodeBC5S(uint8_t *pBC, const PixelBlockS8 *pBlocks, const Options &options);
+        void EncodeBC6HU(uint8_t *pBC, const PixelBlockF16 *pBlocks, const Options &options);
+        void EncodeBC6HS(uint8_t *pBC, const PixelBlockF16 *pBlocks, const Options &options);
+        void EncodeBC7(uint8_t *pBC, const PixelBlockU8 *pBlocks, const Options &options);
+
+        void DecodeBC6HU(PixelBlockF16 *pBlocks, const uint8_t *pBC);
+        void DecodeBC6HS(PixelBlockF16 *pBlocks, const uint8_t *pBC);
+        void DecodeBC7(PixelBlockU8 *pBlocks, const uint8_t *pBC);
     }
 }
 
