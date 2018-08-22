@@ -1,5 +1,5 @@
 /*
-Based on codec from Convection Texture Tools
+Convection Texture Tools
 Copyright (c) 2018 Eric Lasota
 
 Permission is hereby granted, free of charge, to any person obtaining
@@ -22,6 +22,8 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 -------------------------------------------------------------------------------------
+
+Portions based on DirectX Texture Library (DirectXTex)
 
 Copyright (c) Microsoft Corporation. All rights reserved.
 Licensed under the MIT License.

@@ -38,11 +38,11 @@ static_assert(NUM_PARALLEL_BLOCKS == cvtt::NumParallelBlocks, "NUM_PARALLEL_BLOC
 using namespace DirectX;
 using namespace DirectX::PackedVector;
 
-static void PrepareInputBlockU8(cvtt::InputBlockU8 inputBlocks[cvtt::NumParallelBlocks], const XMVECTOR *&pColor)
+static void PreparePixelBlockU8(cvtt::PixelBlockU8 inputBlocks[cvtt::NumParallelBlocks], const XMVECTOR *&pColor)
 {
     for (size_t block = 0; block < cvtt::NumParallelBlocks; block++)
     {
-        cvtt::InputBlockU8& inputBlock = inputBlocks[block];
+        cvtt::PixelBlockU8& inputBlock = inputBlocks[block];
 
         for (size_t px = 0; px < NUM_PIXELS_PER_BLOCK; px++)
         {
@@ -54,11 +54,11 @@ static void PrepareInputBlockU8(cvtt::InputBlockU8 inputBlocks[cvtt::NumParallel
     }
 }
 
-static void PrepareInputBlockS8(cvtt::InputBlockS8 inputBlocks[cvtt::NumParallelBlocks], const XMVECTOR *&pColor)
+static void PreparePixelBlockS8(cvtt::PixelBlockS8 inputBlocks[cvtt::NumParallelBlocks], const XMVECTOR *&pColor)
 {
     for (size_t block = 0; block < cvtt::NumParallelBlocks; block++)
     {
-        cvtt::InputBlockS8& inputBlock = inputBlocks[block];
+        cvtt::PixelBlockS8& inputBlock = inputBlocks[block];
 
         for (size_t px = 0; px < NUM_PIXELS_PER_BLOCK; px++)
         {
@@ -70,11 +70,11 @@ static void PrepareInputBlockS8(cvtt::InputBlockS8 inputBlocks[cvtt::NumParallel
     }
 }
 
-static void PrepareInputBlockF16(cvtt::InputBlockF16 inputBlocks[cvtt::NumParallelBlocks], const XMVECTOR *&pColor)
+static void PreparePixelBlockF16(cvtt::PixelBlockF16 inputBlocks[cvtt::NumParallelBlocks], const XMVECTOR *&pColor)
 {
     for (size_t block = 0; block < cvtt::NumParallelBlocks; block++)
     {
-        cvtt::InputBlockF16& inputBlock = inputBlocks[block];
+        cvtt::PixelBlockF16& inputBlock = inputBlocks[block];
 
         XMHALF4 packedHalfs[NUM_PIXELS_PER_BLOCK];
 
@@ -112,8 +112,8 @@ void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, const 
     assert(pColor);
     assert(pBC);
 
-    cvtt::InputBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
-    PrepareInputBlockU8(inputBlocks, pColor);
+    cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
+    PreparePixelBlockU8(inputBlocks, pColor);
     cvtt::Kernels::EncodeBC7(pBC, inputBlocks, GenerateCVTTOptions(options));
 }
 
@@ -123,8 +123,8 @@ void DirectX::D3DXEncodeBC6HUParallel(uint8_t *pBC, const XMVECTOR *pColor, cons
     assert(pColor);
     assert(pBC);
 
-    cvtt::InputBlockF16 inputBlocks[NUM_PARALLEL_BLOCKS];
-    PrepareInputBlockF16(inputBlocks, pColor);
+    cvtt::PixelBlockF16 inputBlocks[NUM_PARALLEL_BLOCKS];
+    PreparePixelBlockF16(inputBlocks, pColor);
     cvtt::Kernels::EncodeBC6HU(pBC, inputBlocks, GenerateCVTTOptions(options));
 }
 
@@ -134,8 +134,8 @@ void DirectX::D3DXEncodeBC6HSParallel(uint8_t *pBC, const XMVECTOR *pColor, cons
     assert(pColor);
     assert(pBC);
 
-    cvtt::InputBlockF16 inputBlocks[NUM_PARALLEL_BLOCKS];
-    PrepareInputBlockF16(inputBlocks, pColor);
+    cvtt::PixelBlockF16 inputBlocks[NUM_PARALLEL_BLOCKS];
+    PreparePixelBlockF16(inputBlocks, pColor);
     cvtt::Kernels::EncodeBC6HS(pBC, inputBlocks, GenerateCVTTOptions(options));
 }
 
@@ -145,8 +145,8 @@ void DirectX::D3DXEncodeBC1Parallel(uint8_t *pBC, const XMVECTOR *pColor, const 
     assert(pColor);
     assert(pBC);
 
-    cvtt::InputBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
-    PrepareInputBlockU8(inputBlocks, pColor);
+    cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
+    PreparePixelBlockU8(inputBlocks, pColor);
     cvtt::Kernels::EncodeBC1(pBC, inputBlocks, GenerateCVTTOptions(options));
 }
 
@@ -156,8 +156,8 @@ void DirectX::D3DXEncodeBC2Parallel(uint8_t *pBC, const XMVECTOR *pColor, const 
     assert(pColor);
     assert(pBC);
 
-    cvtt::InputBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
-    PrepareInputBlockU8(inputBlocks, pColor);
+    cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
+    PreparePixelBlockU8(inputBlocks, pColor);
     cvtt::Kernels::EncodeBC2(pBC, inputBlocks, GenerateCVTTOptions(options));
 }
 
@@ -167,8 +167,8 @@ void DirectX::D3DXEncodeBC3Parallel(uint8_t *pBC, const XMVECTOR *pColor, const 
     assert(pColor);
     assert(pBC);
 
-    cvtt::InputBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
-    PrepareInputBlockU8(inputBlocks, pColor);
+    cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
+    PreparePixelBlockU8(inputBlocks, pColor);
     cvtt::Kernels::EncodeBC3(pBC, inputBlocks, GenerateCVTTOptions(options));
 }
 
@@ -177,8 +177,8 @@ void DirectX::D3DXEncodeBC4UParallel(uint8_t *pBC, const XMVECTOR *pColor, const
     assert(pColor);
     assert(pBC);
 
-    cvtt::InputBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
-    PrepareInputBlockU8(inputBlocks, pColor);
+    cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
+    PreparePixelBlockU8(inputBlocks, pColor);
     cvtt::Kernels::EncodeBC4U(pBC, inputBlocks, GenerateCVTTOptions(options));
 }
 
@@ -187,8 +187,8 @@ void DirectX::D3DXEncodeBC4SParallel(uint8_t *pBC, const XMVECTOR *pColor, const
     assert(pColor);
     assert(pBC);
 
-    cvtt::InputBlockS8 inputBlocks[NUM_PARALLEL_BLOCKS];
-    PrepareInputBlockS8(inputBlocks, pColor);
+    cvtt::PixelBlockS8 inputBlocks[NUM_PARALLEL_BLOCKS];
+    PreparePixelBlockS8(inputBlocks, pColor);
     cvtt::Kernels::EncodeBC4S(pBC, inputBlocks, GenerateCVTTOptions(options));
 }
 
@@ -197,8 +197,8 @@ void DirectX::D3DXEncodeBC5UParallel(uint8_t *pBC, const XMVECTOR *pColor, const
     assert(pColor);
     assert(pBC);
 
-    cvtt::InputBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
-    PrepareInputBlockU8(inputBlocks, pColor);
+    cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
+    PreparePixelBlockU8(inputBlocks, pColor);
     cvtt::Kernels::EncodeBC5U(pBC, inputBlocks, GenerateCVTTOptions(options));
 }
 
@@ -208,7 +208,7 @@ void DirectX::D3DXEncodeBC5SParallel(uint8_t *pBC, const XMVECTOR *pColor, const
     assert(pColor);
     assert(pBC);
 
-    cvtt::InputBlockS8 inputBlocks[NUM_PARALLEL_BLOCKS];
-    PrepareInputBlockS8(inputBlocks, pColor);
+    cvtt::PixelBlockS8 inputBlocks[NUM_PARALLEL_BLOCKS];
+    PreparePixelBlockS8(inputBlocks, pColor);
     cvtt::Kernels::EncodeBC5S(pBC, inputBlocks, GenerateCVTTOptions(options));
 }
