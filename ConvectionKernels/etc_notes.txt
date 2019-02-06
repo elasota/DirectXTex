@@ -21,6 +21,4 @@ There are several scenarios where this is not ideal:
 
 T and H mode just work by generating clustering assignments by computing a chrominance line and splitting the block in half by the chrominance midpoint and using those to determine the averages.
 
-Planar mode is done in a test depot, but needs to be ported over to use ParallelMath.
-
-Work on color weighting support is ongoing...
+Planar mode is just solved algebraically.
