@@ -130,11 +130,36 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="ConvectionKernels.cpp" />
+    <ClCompile Include="ConvectionKernels_API.cpp" />
+    <ClCompile Include="ConvectionKernels_BC67.cpp" />
+    <ClCompile Include="ConvectionKernels_BC6H_IO.cpp" />
+    <ClCompile Include="ConvectionKernels_BCCommon.cpp" />
+    <ClCompile Include="ConvectionKernels_ETC.cpp" />
+    <ClCompile Include="ConvectionKernels_IndexSelector.cpp" />
+    <ClCompile Include="ConvectionKernels_S3TC.cpp" />
+    <ClCompile Include="ConvectionKernels_SingleFile.cpp" />
+    <ClCompile Include="ConvectionKernels_Util.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ConvectionKernels.h" />
+    <ClInclude Include="ConvectionKernels_AggregatedError.h" />
+    <ClInclude Include="ConvectionKernels_BC67.h" />
+    <ClInclude Include="ConvectionKernels_BC6H_IO.h" />
     <ClInclude Include="ConvectionKernels_BC7_SingleColor.h" />
+    <ClInclude Include="ConvectionKernels_BCCommon.h" />
+    <ClInclude Include="ConvectionKernels_Config.h" />
+    <ClInclude Include="ConvectionKernels_EndpointRefiner.h" />
+    <ClInclude Include="ConvectionKernels_EndpointSelector.h" />
+    <ClInclude Include="ConvectionKernels_ETC.h" />
+    <ClInclude Include="ConvectionKernels_ETC1.h" />
+    <ClInclude Include="ConvectionKernels_ETC2.h" />
+    <ClInclude Include="ConvectionKernels_IndexSelector.h" />
+    <ClInclude Include="ConvectionKernels_IndexSelectorHDR.h" />
+    <ClInclude Include="ConvectionKernels_PackedCovarianceMatrix.h" />
+    <ClInclude Include="ConvectionKernels_ParallelMath.h" />
+    <ClInclude Include="ConvectionKernels_S3TC.h" />
+    <ClInclude Include="ConvectionKernels_UnfinishedEndpoints.h" />
+    <ClInclude Include="ConvectionKernels_Util.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

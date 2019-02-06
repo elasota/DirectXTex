@@ -122,8 +122,23 @@ namespace cvtt
         int16_t m_pixels[16][4];
     };
 
+    class ETC2CompressionData
+    {
+    protected:
+        ETC2CompressionData() {}
+    };
+
+    class ETC1CompressionData
+    {
+    protected:
+        ETC1CompressionData() {}
+    };
+
     namespace Kernels
     {
+        typedef void* allocFunc_t(void* context, size_t size);
+        typedef void freeFunc_t(void *context, void* ptr, size_t size);
+
         // NOTE: All functions accept and output NumParallelBlocks blocks at once
         void EncodeBC1(uint8_t *pBC, const PixelBlockU8 *pBlocks, const Options &options);
         void EncodeBC2(uint8_t *pBC, const PixelBlockU8 *pBlocks, const Options &options);
@@ -135,6 +150,16 @@ namespace cvtt
         void EncodeBC6HU(uint8_t *pBC, const PixelBlockF16 *pBlocks, const Options &options);
         void EncodeBC6HS(uint8_t *pBC, const PixelBlockF16 *pBlocks, const Options &options);
         void EncodeBC7(uint8_t *pBC, const PixelBlockU8 *pBlocks, const Options &options);
+        void EncodeETC1(uint8_t *pBC, const PixelBlockU8 *pBlocks, const Options &options, ETC1CompressionData *compressionData);
+        void EncodeETC2(uint8_t *pBC, const PixelBlockU8 *pBlocks, const Options &options, ETC2CompressionData *compressionData);
+
+        // ETC compression requires temporary storage that normally consumes a large amount of stack space.
+        // To allocate and release it, use one of these functions.
+        ETC2CompressionData *AllocETC2Data(allocFunc_t allocFunc, void* context);
+        void ReleaseETC2Data(ETC2CompressionData *compressionData, freeFunc_t freeFunc);
+
+        ETC1CompressionData *AllocETC1Data(allocFunc_t allocFunc, void* context);
+        void ReleaseETC1Data(ETC1CompressionData *compressionData, freeFunc_t freeFunc);
 
         void DecodeBC6HU(PixelBlockF16 *pBlocks, const uint8_t *pBC);
         void DecodeBC6HS(PixelBlockF16 *pBlocks, const uint8_t *pBC);
