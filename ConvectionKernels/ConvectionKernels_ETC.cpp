@@ -686,6 +686,315 @@ void cvtt::Internal::ETCComputer::EncodeHMode(uint8_t *outputBuffer, MFloat &bes
     }
 }
 
+cvtt::ParallelMath::UInt15 cvtt::Internal::ETCComputer::DecodePlanarCoeff(const MUInt15 &coeff, int ch)
+{
+    if (ch == 1)
+        return (coeff << 1) | (ParallelMath::RightShift(coeff, 6));
+    else
+        return (coeff << 2) | (ParallelMath::RightShift(coeff, 4));
+}
+
+void cvtt::Internal::ETCComputer::EncodePlanar(uint8_t *outputBuffer, MFloat &bestError, const MUInt15 pixels[16][3])
+{
+    // NOTE: If it's desired to do this in another color space, the best way to do it would probably be
+    // to do everything in that color space and then transform it back to RGB.
+
+    // We compute H = (H-O)/4 and V= (V-O)/4 to simplify the math
+
+    // error = (x*H + y*V + O - C)^2
+
+    MFloat totalError = ParallelMath::MakeFloatZero();
+    MUInt15 bestCoeffs[3][3];	// [Channel][Coeff]
+    for (int ch = 0; ch < 3; ch++)
+    {
+        float fhh = 0.f;
+        float fho = 0.f;
+        float fhv = 0.f;
+        float foo = 0.f;
+        float fov = 0.f;
+        float fvv = 0.f;
+        MFloat fc = ParallelMath::MakeFloatZero();
+        MFloat fh = ParallelMath::MakeFloatZero();
+        MFloat fv = ParallelMath::MakeFloatZero();
+        MFloat fo = ParallelMath::MakeFloatZero();
+
+        float &foh = fho;
+        float &fvh = fhv;
+        float &fvo = fov;
+
+        MFloat h = ParallelMath::MakeFloatZero();
+        MFloat v = ParallelMath::MakeFloatZero();
+        MFloat o = ParallelMath::MakeFloatZero();
+
+        for (int px = 0; px < 16; px++)
+        {
+            float x = static_cast<float>(px % 4);
+            float y = static_cast<float>(px / 4);
+            MFloat c = ParallelMath::ToFloat(pixels[px][ch]);
+
+            // (x*H + y*V + O - C)^2
+            fhh += x * x;
+            fhv += x * y;
+            fho += x;
+            fh = fh - c * x;
+
+            fvh += y * x;
+            fvv += y * y;
+            fvo += y;
+            fv = fv - c * y;
+
+            foh += x;
+            fov += y;
+            foo += 1;
+            fo = fo - c;
+
+            fh = fh - c * x;
+            fv = fv - c * y;
+            fo = fo - c;
+            fc = fc + c * c;
+        }
+
+        //float totalError = fhh * h * h + fho * h*o + fhv * h*v + foo * o * o + fov * o*v + fvv * v * v + fh * h + fv * v + fo * o + fc;
+        MFloat dErrorDH = fh + h * (2.0f * fhh) + o * fho + v * fhv;
+        MFloat dErrorDV = fv + h * fhv + o * fov + v * (2.0f * fvv);
+        MFloat dErrorDO = fo + h * fho + o * (2.0f * foo) + v * fov;
+
+        // error = fhh*h^2 + fho*h*o + fhv*h*v + foo*o^2 + fov*o*v + fvv*v^2 + fh*h + fv*v + fo*o + fc
+        // derror/dh = 2*fhh*h + fho*o + fhv*v + fh
+        // derror/dv = fhv*h + fov*o + 2*fvv*v + fv
+        // derror/do = fho*h + 2*foo*o + fov*v + fo
+
+        // Solve system of equations
+        // h o v 1 = 0
+        // -------
+        // d e f g  R0
+        // i j k l  R1
+        // m n p q  R2
+
+        float d = 2.0f * fhh;
+        float e = fho;
+        float f = fhv;
+        MFloat gD = fh;
+
+        float i = fhv;
+        float j = fov;
+        float k = 2.0f * fvv;
+        MFloat lD = fv;
+
+        float m = fho;
+        float n = 2.0f * foo;
+        float p = fov;
+        MFloat qD = fo;
+
+        {
+            // Factor out first column from R1 and R2
+            float r0to1 = -i / d;
+            float r0to2 = -m / d;
+
+            // 0 j1 k1 l1D
+            float j1 = j + r0to1 * e;
+            float k1 = k + r0to1 * f;
+            MFloat l1D = lD + gD * r0to1;
+
+            // 0 n1 p1 q1D
+            float n1 = n + r0to2 * e;
+            float p1 = p + r0to2 * f;
+            MFloat q1D = qD + gD * r0to2;
+
+            // Factor out third column from R2
+            float r1to2 = -p1 / k1;
+
+            // 0 n2 0 q2D
+            float n2 = n1 + r1to2 * j1;
+            MFloat q2D = q1D + l1D * r1to2;
+
+            o = -q2D / n2;
+
+            // Factor out second column from R1
+            // 0 n2 0 q2D
+
+            float r2to1 = -j1 / n2;
+
+            // 0 0 k1 l2D
+            // 0 n2 0 q2D
+            MFloat l2D = l1D + q2D * r2to1;
+
+            float elim2 = -f / k1;
+            float elim1 = -e / n2;
+
+            // d 0 0 g2D
+            MFloat g2D = gD + l2D * elim2 + q2D * elim1;
+
+            // n2*o + q2 = 0
+            // o = -q2 / n2
+            h = -g2D / d;
+            v = -l2D / k1;
+        }
+
+        h = h * 4.0 + o;
+        v = v * 4.0 + o;
+
+        MFloat fcoeffs[3] = { o, h, v };
+        MUInt15 coeffRanges[3][2];
+
+        for (int c = 0; c < 3; c++)
+        {
+            MFloat coeff = ParallelMath::Max(ParallelMath::MakeFloatZero(), fcoeffs[c]);
+            if (ch == 1)
+                coeff = ParallelMath::Min(ParallelMath::MakeFloat(127.0f), coeff * (127.0f / 255.0f) + 0.5f);
+            else
+                coeff = ParallelMath::Min(ParallelMath::MakeFloat(63.0f), coeff * (63.0f / 255.0f) + 0.5f);
+            fcoeffs[c] = coeff;
+        }
+
+        {
+            ParallelMath::RoundDownForScope rd;
+            for (int c = 0; c < 3; c++)
+                coeffRanges[c][0] = ParallelMath::RoundAndConvertToU15(fcoeffs[c], &rd);
+        }
+
+        {
+            ParallelMath::RoundUpForScope ru;
+            for (int c = 0; c < 3; c++)
+                coeffRanges[c][1] = ParallelMath::RoundAndConvertToU15(fcoeffs[c], &ru);
+        }
+
+        MFloat bestChannelError = ParallelMath::MakeFloat(FLT_MAX);
+        for (int io = 0; io < 2; io++)
+        {
+            MUInt15 dO = DecodePlanarCoeff(coeffRanges[0][io], ch);
+
+            for (int ih = 0; ih < 2; ih++)
+            {
+                MUInt15 dH = DecodePlanarCoeff(coeffRanges[1][ih], ch);
+
+                for (int iv = 0; iv < 2; iv++)
+                {
+                    MUInt15 dV = DecodePlanarCoeff(coeffRanges[2][iv], ch);
+
+                    MFloat error = ParallelMath::MakeFloatZero();
+
+                    MSInt16 addend = ParallelMath::LosslessCast<MSInt16>::Cast(dO << 2) + 2;
+
+                    for (int px = 0; px < 16; px++)
+                    {
+                        MUInt15 pxv = ParallelMath::MakeUInt15(px);
+                        MSInt16 x = ParallelMath::LosslessCast<MSInt16>::Cast(pxv & ParallelMath::MakeUInt15(3));
+                        MSInt16 y = ParallelMath::LosslessCast<MSInt16>::Cast(ParallelMath::RightShift(pxv, 2));
+
+                        MSInt16 interpolated = ParallelMath::RightShift(ParallelMath::CompactMultiply(x, (dH - dO)) + ParallelMath::CompactMultiply(y, (dV - dO)) + addend, 2);
+                        MUInt15 clampedLow = ParallelMath::ToUInt15(ParallelMath::Max(ParallelMath::MakeSInt16(0), interpolated));
+                        MUInt15 dec = ParallelMath::Min(ParallelMath::MakeUInt15(255), clampedLow);
+
+                        MSInt16 delta = ParallelMath::LosslessCast<MSInt16>::Cast(pixels[px][ch]) - ParallelMath::LosslessCast<MSInt16>::Cast(dec);
+
+                        MFloat deltaF = ParallelMath::ToFloat(delta);
+                        error = error + deltaF * deltaF;
+                    }
+
+                    ParallelMath::Int16CompFlag errorBetter = ParallelMath::FloatFlagToInt16(ParallelMath::Less(error, bestChannelError));
+                    if (ParallelMath::AnySet(errorBetter))
+                    {
+                        bestChannelError = ParallelMath::Min(error, bestChannelError);
+                        ParallelMath::ConditionalSet(bestCoeffs[ch][0], errorBetter, coeffRanges[0][io]);
+                        ParallelMath::ConditionalSet(bestCoeffs[ch][1], errorBetter, coeffRanges[1][ih]);
+                        ParallelMath::ConditionalSet(bestCoeffs[ch][2], errorBetter, coeffRanges[2][iv]);
+                    }
+                }
+            }
+        }
+
+        totalError = totalError + bestChannelError;
+    }
+
+    ParallelMath::Int16CompFlag errorBetter = ParallelMath::FloatFlagToInt16(ParallelMath::Less(totalError, bestError));
+    if (ParallelMath::AnySet(errorBetter))
+    {
+        bestError = ParallelMath::Min(bestError, totalError);
+
+        for (int block = 0; block < ParallelMath::ParallelSize; block++)
+        {
+            if (!ParallelMath::Extract(errorBetter, block))
+                continue;
+
+            int ro = ParallelMath::Extract(bestCoeffs[0][0], block);
+            int rh = ParallelMath::Extract(bestCoeffs[0][1], block);
+            int rv = ParallelMath::Extract(bestCoeffs[0][2], block);
+
+            int go = ParallelMath::Extract(bestCoeffs[1][0], block);
+            int gh = ParallelMath::Extract(bestCoeffs[1][1], block);
+            int gv = ParallelMath::Extract(bestCoeffs[1][2], block);
+
+            int bo = ParallelMath::Extract(bestCoeffs[2][0], block);
+            int bh = ParallelMath::Extract(bestCoeffs[2][1], block);
+            int bv = ParallelMath::Extract(bestCoeffs[2][2], block);
+
+            int go1 = go >> 6;
+            int go2 = go & 63;
+
+            int bo1 = bo >> 5;
+            int bo2 = (bo >> 3) & 3;
+            int bo3 = bo & 7;
+
+            int rh1 = (rh >> 1);
+            int rh2 = rh & 1;
+
+            int fakeR = ro >> 2;
+            int fakeDR = go1 | ((ro & 3) << 1);
+
+            int fakeG = (go2 >> 2);
+            int fakeDG = ((go2 & 3) << 1) | bo1;
+
+            int fakeB = bo2;
+            int fakeDB = bo3 >> 1;
+
+            uint32_t highBits = 0;
+            uint32_t lowBits = 0;
+
+            // Avoid overflowing R
+            if ((fakeDR & 4) != 0 && fakeR + fakeDR < 8)
+                highBits |= 1 << (63 - 32);
+
+            // Avoid overflowing G
+            if ((fakeDG & 4) != 0 && fakeG + fakeDG < 8)
+                highBits |= 1 << (55 - 32);
+
+            // Overflow B
+            if (fakeB + fakeDB < 4)
+            {
+                // Overflow low
+                highBits |= 1 << (42 - 32);
+            }
+            else
+            {
+                // Overflow high
+                highBits |= 7 << (45 - 32);
+            }
+
+            highBits |= ro << (57 - 32);
+            highBits |= go1 << (56 - 32);
+            highBits |= go2 << (49 - 32);
+            highBits |= bo1 << (48 - 32);
+            highBits |= bo2 << (43 - 32);
+            highBits |= bo3 << (39 - 32);
+            highBits |= rh1 << (34 - 32);
+            highBits |= 1 << (33 - 32);
+            highBits |= rh2 << (32 - 32);
+
+            lowBits |= gh << 25;
+            lowBits |= bh << 19;
+            lowBits |= rv << 13;
+            lowBits |= gv << 6;
+            lowBits |= bv << 0;
+
+            for (int i = 0; i < 4; i++)
+                outputBuffer[block * 8 + i] = (highBits >> (24 - i * 8)) & 0xff;
+            for (int i = 0; i < 4; i++)
+                outputBuffer[block * 8 + i + 4] = (lowBits >> (24 - i * 8)) & 0xff;
+        }
+    }
+}
+
 void cvtt::Internal::ETCComputer::CompressETC2Block(uint8_t *outputBuffer, const PixelBlockU8 *pixelBlocks, ETC2CompressionData *compressionData)
 {
     MFloat bestError = ParallelMath::MakeFloat(FLT_MAX);
@@ -698,7 +1007,7 @@ void cvtt::Internal::ETCComputer::CompressETC2Block(uint8_t *outputBuffer, const
             for (int block = 0; block < ParallelMath::ParallelSize; block++)
                 ParallelMath::PutUInt15(pixels[px][ch], block, pixelBlocks[block].m_pixels[px][ch]);
 
-    //EncodePlanar(outputBuffer, bestError, pixels);
+    EncodePlanar(outputBuffer, bestError, pixels);
 
     MSInt16 chromaCoordinates3[16][2];
     for (int px = 0; px < 16; px++)
@@ -1025,6 +1334,7 @@ void cvtt::Internal::ETCComputer::CompressETC1BlockInternal(MFloat &bestTotalErr
                         // Fast path if the best possible case is legal
                         if (ETCDifferentialIsLegalScalar(bestDiffColors[0], bestDiffColors[1]))
                         {
+                            ParallelMath::PutBoolInt16(bestIsThisMode, block, true);
                             ParallelMath::PutFloat(bestTotalError, block, bestDiffErrors[0] + bestDiffErrors[1]);
                             ParallelMath::PutUInt15(bestFlip, block, flip);
                             ParallelMath::PutUInt15(bestD, block, d);

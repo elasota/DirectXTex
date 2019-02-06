@@ -82,6 +82,8 @@ namespace cvtt
             static bool ETCDifferentialIsLegalScalar(const uint16_t &a, const uint16_t &b);
             static void EncodeTMode(uint8_t *outputBuffer, MFloat &bestError, const ParallelMath::Int16CompFlag isIsolated[16], const MUInt15 pixels[16][3]);
             static void EncodeHMode(uint8_t *outputBuffer, MFloat &bestError, const ParallelMath::Int16CompFlag groupings[16], const MUInt15 pixels[16][3], HModeEval &he);
+            static MUInt15 DecodePlanarCoeff(const MUInt15 &coeff, int ch);
+            static void EncodePlanar(uint8_t *outputBuffer, MFloat &bestError, const MUInt15 pixels[16][3]);
 
             static void CompressETC1BlockInternal(MFloat &bestTotalError, uint8_t *outputBuffer, const PixelBlockU8 *inputBlocks, DifferentialResolveStorage& compressionData);
         };
