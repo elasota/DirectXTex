@@ -1,0 +1,3 @@
+[submodule "ConvectionKernels"]
+	path = ConvectionKernels
+	url = https://github.com/elasota/ConvectionKernels.git
