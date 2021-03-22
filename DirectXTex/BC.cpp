@@ -734,13 +734,13 @@ void DirectX::D3DXDecodeBC1(XMVECTOR *pColor, const uint8_t *pBC)
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC1(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC1(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pBC && pColor);
 
     HDRColorA Color[NUM_PIXELS_PER_BLOCK];
 
-    if (options.flags & BC_FLAGS_DITHER_A)
+    if (config.options.flags & BC_FLAGS_DITHER_A)
     {
         float fError[NUM_PIXELS_PER_BLOCK] = {};
 
@@ -790,7 +790,7 @@ void DirectX::D3DXEncodeBC1(uint8_t *pBC, const XMVECTOR *pColor, const TexCompr
     }
 
     auto pBC1 = reinterpret_cast<D3DX_BC1 *>(pBC);
-    EncodeBC1(pBC1, Color, true, options.threshold, options);
+    EncodeBC1(pBC1, Color, true, config.options.threshold, config.options);
 }
 
 
@@ -824,7 +824,7 @@ void DirectX::D3DXDecodeBC2(XMVECTOR *pColor, const uint8_t *pBC)
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC2(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC2(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pBC && pColor);
     static_assert(sizeof(D3DX_BC2) == 16, "D3DX_BC2 should be 16 bytes");
@@ -845,7 +845,7 @@ void DirectX::D3DXEncodeBC2(uint8_t *pBC, const XMVECTOR *pColor, const TexCompr
     for (size_t i = 0; i < NUM_PIXELS_PER_BLOCK; ++i)
     {
         float fAlph = Color[i].a;
-        if (options.flags & BC_FLAGS_DITHER_A)
+        if (config.options.flags & BC_FLAGS_DITHER_A)
             fAlph += fError[i];
 
         uint32_t u = (uint32_t) static_cast<int32_t>(fAlph * 15.0f + 0.5f);
@@ -853,7 +853,7 @@ void DirectX::D3DXEncodeBC2(uint8_t *pBC, const XMVECTOR *pColor, const TexCompr
         pBC2->bitmap[i >> 3] >>= 4;
         pBC2->bitmap[i >> 3] |= (u << 28);
 
-        if (options.flags & BC_FLAGS_DITHER_A)
+        if (config.options.flags & BC_FLAGS_DITHER_A)
         {
             float fDiff = fAlph - (float)u * (1.0f / 15.0f);
 
@@ -890,7 +890,7 @@ void DirectX::D3DXEncodeBC2(uint8_t *pBC, const XMVECTOR *pColor, const TexCompr
     }
 #endif // COLOR_WEIGHTS
 
-    EncodeBC1(&pBC2->bc1, Color, false, 0.f, options);
+    EncodeBC1(&pBC2->bc1, Color, false, 0.f, config.options);
 }
 
 
@@ -940,7 +940,7 @@ void DirectX::D3DXDecodeBC3(XMVECTOR *pColor, const uint8_t *pBC)
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pBC && pColor);
     static_assert(sizeof(D3DX_BC3) == 16, "D3DX_BC3 should be 16 bytes");
@@ -965,7 +965,7 @@ void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, const TexCompr
     for (size_t i = 0; i < NUM_PIXELS_PER_BLOCK; ++i)
     {
         float fAlph = Color[i].a;
-        if (options.flags & BC_FLAGS_DITHER_A)
+        if (config.options.flags & BC_FLAGS_DITHER_A)
             fAlph += fError[i];
 
         fAlpha[i] = static_cast<int32_t>(fAlph * 255.0f + 0.5f) * (1.0f / 255.0f);
@@ -975,7 +975,7 @@ void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, const TexCompr
         else if (fAlpha[i] > fMaxAlpha)
             fMaxAlpha = fAlpha[i];
 
-        if (options.flags & BC_FLAGS_DITHER_A)
+        if (config.options.flags & BC_FLAGS_DITHER_A)
         {
             float fDiff = fAlph - fAlpha[i];
 
@@ -1014,7 +1014,7 @@ void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, const TexCompr
 #endif
 
     // RGB part
-    EncodeBC1(&pBC3->bc1, Color, false, 0.f, options);
+    EncodeBC1(&pBC3->bc1, Color, false, 0.f, config.options);
 
     // Alpha part
     if (1.0f == fMinAlpha)
@@ -1086,7 +1086,7 @@ void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, const TexCompr
     float fSteps = (float)(uSteps - 1);
     float fScale = (fStep[0] != fStep[1]) ? (fSteps / (fStep[1] - fStep[0])) : 0.0f;
 
-    if (options.flags & BC_FLAGS_DITHER_A)
+    if (config.options.flags & BC_FLAGS_DITHER_A)
         memset(fError, 0x00, NUM_PIXELS_PER_BLOCK * sizeof(float));
 
     for (size_t iSet = 0; iSet < 2; iSet++)
@@ -1099,7 +1099,7 @@ void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, const TexCompr
         for (size_t i = iMin; i < iLim; ++i)
         {
             float fAlph = Color[i].a;
-            if (options.flags & BC_FLAGS_DITHER_A)
+            if (config.options.flags & BC_FLAGS_DITHER_A)
                 fAlph += fError[i];
             float fDot = (fAlph - fStep[0]) * fScale;
 
@@ -1113,7 +1113,7 @@ void DirectX::D3DXEncodeBC3(uint8_t *pBC, const XMVECTOR *pColor, const TexCompr
 
             dw = (iStep << 21) | (dw >> 3);
 
-            if (options.flags & BC_FLAGS_DITHER_A)
+            if (config.options.flags & BC_FLAGS_DITHER_A)
             {
                 float fDiff = (fAlph - fStep[iStep]);
 

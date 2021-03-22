@@ -573,12 +573,6 @@ namespace DirectX
         TEX_COMPRESS_UNIFORM            = 0x40000,
             // Uniform color weighting for BC1-3 compression; by default uses perceptual weighting
 
-        TEX_COMPRESS_BC7_USE_3SUBSETS   = 0x80000,
-            // Enables exhaustive search for BC7 compress for mode 0 and 2; by default skips trying these modes
-
-        TEX_COMPRESS_BC7_QUICK          = 0x100000,
-            // Minimal modes (usually mode 6) for BC7 compression
-
         TEX_COMPRESS_SRGB_IN            = 0x1000000,
         TEX_COMPRESS_SRGB_OUT           = 0x2000000,
         TEX_COMPRESS_SRGB               = (TEX_COMPRESS_SRGB_IN | TEX_COMPRESS_SRGB_OUT),
@@ -592,6 +586,7 @@ namespace DirectX
     struct TexCompressOptions
     {
         DWORD flags;
+        float quality;
         float threshold;
         float redWeight;
         float greenWeight;
@@ -600,6 +595,7 @@ namespace DirectX
 
         TexCompressOptions()
             : flags(0)
+            , quality(0.5f)
             , threshold(TEX_THRESHOLD_DEFAULT)
             , redWeight(0.2125f / 0.7154f)
             , greenWeight(1.0f)
@@ -607,6 +603,17 @@ namespace DirectX
             , alphaWeight(1.0f)
         {
         }
+    };
+
+    class TexCompressConfiguration
+    {
+    public:
+        virtual void Release() = 0;
+
+        TexCompressOptions options;
+
+    protected:
+        virtual ~TexCompressConfiguration() {}
     };
 
     // Note that threshold is only used by BC1. TEX_THRESHOLD_DEFAULT is a typical value to use

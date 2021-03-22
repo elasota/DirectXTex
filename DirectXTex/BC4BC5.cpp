@@ -416,9 +416,9 @@ void DirectX::D3DXDecodeBC4S(XMVECTOR *pColor, const uint8_t *pBC)
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC4U(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC4U(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
-    UNREFERENCED_PARAMETER(options);
+    UNREFERENCED_PARAMETER(config);
 
     assert(pBC && pColor);
     static_assert(sizeof(BC4_UNORM) == 8, "BC4_UNORM should be 8 bytes");
@@ -437,9 +437,9 @@ void DirectX::D3DXEncodeBC4U(uint8_t *pBC, const XMVECTOR *pColor, const TexComp
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC4S(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC4S(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
-    UNREFERENCED_PARAMETER(options);
+    UNREFERENCED_PARAMETER(config);
 
     assert(pBC && pColor);
     static_assert(sizeof(BC4_SNORM) == 8, "BC4_SNORM should be 8 bytes");
@@ -494,9 +494,9 @@ void DirectX::D3DXDecodeBC5S(XMVECTOR *pColor, const uint8_t *pBC)
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC5U(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC5U(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
-    UNREFERENCED_PARAMETER(options);
+    UNREFERENCED_PARAMETER(config);
 
     assert(pBC && pColor);
     static_assert(sizeof(BC4_UNORM) == 8, "BC4_UNORM should be 8 bytes");
@@ -528,9 +528,9 @@ void DirectX::D3DXEncodeBC5U(uint8_t *pBC, const XMVECTOR *pColor, const TexComp
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC5S(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC5S(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
-    UNREFERENCED_PARAMETER(options);
+    UNREFERENCED_PARAMETER(config);
 
     assert(pBC && pColor);
     static_assert(sizeof(BC4_SNORM) == 8, "BC4_SNORM should be 8 bytes");

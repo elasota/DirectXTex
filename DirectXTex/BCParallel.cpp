@@ -38,6 +38,40 @@ static_assert(NUM_PARALLEL_BLOCKS == cvtt::NumParallelBlocks, "NUM_PARALLEL_BLOC
 using namespace DirectX;
 using namespace DirectX::PackedVector;
 
+class TexCompressConfigurationCVTT : public TexCompressConfiguration
+{
+public:
+    TexCompressConfigurationCVTT() {}
+    void Release();
+    static TexCompressConfigurationCVTT *Create();
+
+    cvtt::Options cvttOptions;
+    cvtt::BC7EncodingPlan cvttBC7Plan;
+
+protected:
+    ~TexCompressConfigurationCVTT();
+};
+
+void TexCompressConfigurationCVTT::Release()
+{
+    this->~TexCompressConfigurationCVTT();
+    _aligned_free(this);
+}
+
+TexCompressConfigurationCVTT *TexCompressConfigurationCVTT::Create()
+{
+    void *storage = _aligned_malloc(sizeof(TexCompressConfigurationCVTT), 16);
+    if (!storage)
+        return NULL;
+
+    return new (storage) TexCompressConfigurationCVTT();
+}
+
+TexCompressConfigurationCVTT::~TexCompressConfigurationCVTT()
+{
+}
+
+
 static void PreparePixelBlockU8(cvtt::PixelBlockU8 inputBlocks[cvtt::NumParallelBlocks], const XMVECTOR *&pColor)
 {
     for (size_t block = 0; block < cvtt::NumParallelBlocks; block++)
@@ -94,10 +128,6 @@ static cvtt::Options GenerateCVTTOptions(const TexCompressOptions &options)
     cvttOptions.blueWeight = options.blueWeight;
     cvttOptions.alphaWeight = options.alphaWeight;
 
-    if (options.flags & BC_FLAGS_FORCE_BC7_MODE6)
-        cvttOptions.flags = cvtt::Flags::Fast;
-    if (options.flags & BC_FLAGS_USE_3SUBSETS)
-        cvttOptions.flags = cvtt::Flags::Better;
     if (options.flags & BC_FLAGS_UNIFORM)
         cvttOptions.flags |= cvtt::Flags::Uniform;
 
@@ -106,109 +136,171 @@ static cvtt::Options GenerateCVTTOptions(const TexCompressOptions &options)
     return cvttOptions;
 }
 
-_Use_decl_annotations_
-void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+static cvtt::BC7EncodingPlan GenerateCVTTBC7EncodingPlan(const TexCompressOptions &options)
 {
-    assert(pColor);
-    assert(pBC);
+    cvtt::BC7EncodingPlan encodingPlan;
 
-    cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
-    PreparePixelBlockU8(inputBlocks, pColor);
-    cvtt::Kernels::EncodeBC7(pBC, inputBlocks, GenerateCVTTOptions(options));
+    float sqQuality = options.quality * options.quality;
+    int normalizedQuality = static_cast<int>(floorf(sqQuality * 100.f));
+
+    if (normalizedQuality < 1)
+        normalizedQuality = 1;
+    if (normalizedQuality > 100)
+        normalizedQuality = 100;
+
+    cvtt::Kernels::ConfigureBC7EncodingPlanFromQuality(encodingPlan, normalizedQuality);
+
+    return encodingPlan;
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC6HUParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+TexCompressConfiguration *DirectX::D3DXConfigureParallel(const TexCompressOptions &options)
+{
+    TexCompressConfigurationCVTT *config = TexCompressConfigurationCVTT::Create();
+    if (!config)
+        return NULL;
+
+    config->options = options;
+    config->cvttOptions = GenerateCVTTOptions(options);
+
+    return config;
+}
+
+_Use_decl_annotations_
+TexCompressConfiguration *DirectX::D3DXConfigureBC7Parallel(const TexCompressOptions &options)
+{
+    TexCompressConfigurationCVTT *config = static_cast<TexCompressConfigurationCVTT*>(D3DXConfigureParallel(options));
+    if (!config)
+        return NULL;
+
+    config->cvttBC7Plan = GenerateCVTTBC7EncodingPlan(options);
+
+    return config;
+}
+
+_Use_decl_annotations_
+void DirectX::D3DXEncodeBC7Parallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pColor);
     assert(pBC);
+
+    const TexCompressConfigurationCVTT &cvttConfig = static_cast<const TexCompressConfigurationCVTT&>(config);
+
+    cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
+    PreparePixelBlockU8(inputBlocks, pColor);
+    cvtt::Kernels::EncodeBC7(pBC, inputBlocks, cvttConfig.cvttOptions, cvttConfig.cvttBC7Plan);
+}
+
+_Use_decl_annotations_
+void DirectX::D3DXEncodeBC6HUParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
+{
+    assert(pColor);
+    assert(pBC);
+
+    const TexCompressConfigurationCVTT &cvttConfig = static_cast<const TexCompressConfigurationCVTT&>(config);
 
     cvtt::PixelBlockF16 inputBlocks[NUM_PARALLEL_BLOCKS];
     PreparePixelBlockF16(inputBlocks, pColor);
-    cvtt::Kernels::EncodeBC6HU(pBC, inputBlocks, GenerateCVTTOptions(options));
+    cvtt::Kernels::EncodeBC6HU(pBC, inputBlocks, cvttConfig.cvttOptions);
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC6HSParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC6HSParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pColor);
     assert(pBC);
+
+    const TexCompressConfigurationCVTT &cvttConfig = static_cast<const TexCompressConfigurationCVTT&>(config);
 
     cvtt::PixelBlockF16 inputBlocks[NUM_PARALLEL_BLOCKS];
     PreparePixelBlockF16(inputBlocks, pColor);
-    cvtt::Kernels::EncodeBC6HS(pBC, inputBlocks, GenerateCVTTOptions(options));
+    cvtt::Kernels::EncodeBC6HS(pBC, inputBlocks, cvttConfig.cvttOptions);
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC1Parallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC1Parallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pColor);
     assert(pBC);
 
+    const TexCompressConfigurationCVTT &cvttConfig = static_cast<const TexCompressConfigurationCVTT&>(config);
+
     cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
     PreparePixelBlockU8(inputBlocks, pColor);
-    cvtt::Kernels::EncodeBC1(pBC, inputBlocks, GenerateCVTTOptions(options));
+    cvtt::Kernels::EncodeBC1(pBC, inputBlocks, cvttConfig.cvttOptions);
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC2Parallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC2Parallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pColor);
     assert(pBC);
 
+    const TexCompressConfigurationCVTT &cvttConfig = static_cast<const TexCompressConfigurationCVTT&>(config);
+
     cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
     PreparePixelBlockU8(inputBlocks, pColor);
-    cvtt::Kernels::EncodeBC2(pBC, inputBlocks, GenerateCVTTOptions(options));
+    cvtt::Kernels::EncodeBC2(pBC, inputBlocks, cvttConfig.cvttOptions);
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC3Parallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC3Parallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pColor);
     assert(pBC);
+
+    const TexCompressConfigurationCVTT &cvttConfig = static_cast<const TexCompressConfigurationCVTT&>(config);
 
     cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
     PreparePixelBlockU8(inputBlocks, pColor);
-    cvtt::Kernels::EncodeBC3(pBC, inputBlocks, GenerateCVTTOptions(options));
+    cvtt::Kernels::EncodeBC3(pBC, inputBlocks, cvttConfig.cvttOptions);
 }
 
-void DirectX::D3DXEncodeBC4UParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC4UParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pColor);
     assert(pBC);
+
+    const TexCompressConfigurationCVTT &cvttConfig = static_cast<const TexCompressConfigurationCVTT&>(config);
 
     cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
     PreparePixelBlockU8(inputBlocks, pColor);
-    cvtt::Kernels::EncodeBC4U(pBC, inputBlocks, GenerateCVTTOptions(options));
+    cvtt::Kernels::EncodeBC4U(pBC, inputBlocks, cvttConfig.cvttOptions);
 }
 
-void DirectX::D3DXEncodeBC4SParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC4SParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pColor);
     assert(pBC);
+
+    const TexCompressConfigurationCVTT &cvttConfig = static_cast<const TexCompressConfigurationCVTT&>(config);
 
     cvtt::PixelBlockS8 inputBlocks[NUM_PARALLEL_BLOCKS];
     PreparePixelBlockS8(inputBlocks, pColor);
-    cvtt::Kernels::EncodeBC4S(pBC, inputBlocks, GenerateCVTTOptions(options));
+    cvtt::Kernels::EncodeBC4S(pBC, inputBlocks, cvttConfig.cvttOptions);
 }
 
-void DirectX::D3DXEncodeBC5UParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC5UParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pColor);
     assert(pBC);
+
+    const TexCompressConfigurationCVTT &cvttConfig = static_cast<const TexCompressConfigurationCVTT&>(config);
 
     cvtt::PixelBlockU8 inputBlocks[NUM_PARALLEL_BLOCKS];
     PreparePixelBlockU8(inputBlocks, pColor);
-    cvtt::Kernels::EncodeBC5U(pBC, inputBlocks, GenerateCVTTOptions(options));
+    cvtt::Kernels::EncodeBC5U(pBC, inputBlocks, cvttConfig.cvttOptions);
 }
 
 
-void DirectX::D3DXEncodeBC5SParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC5SParallel(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pColor);
     assert(pBC);
 
+    const TexCompressConfigurationCVTT &cvttConfig = static_cast<const TexCompressConfigurationCVTT&>(config);
+
     cvtt::PixelBlockS8 inputBlocks[NUM_PARALLEL_BLOCKS];
     PreparePixelBlockS8(inputBlocks, pColor);
-    cvtt::Kernels::EncodeBC5S(pBC, inputBlocks, GenerateCVTTOptions(options));
+    cvtt::Kernels::EncodeBC5S(pBC, inputBlocks, cvttConfig.cvttOptions);
 }

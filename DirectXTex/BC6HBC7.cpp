@@ -2748,18 +2748,6 @@ void D3DX_BC7::Encode(DWORD flags, const HDRColorA* const pIn)
 
     for (EP.uMode = 0; EP.uMode < 8 && fMSEBest > 0; ++EP.uMode)
     {
-        if (!(flags & BC_FLAGS_USE_3SUBSETS) && (EP.uMode == 0 || EP.uMode == 2))
-        {
-            // 3 subset modes tend to be used rarely and add significant compression time
-            continue;
-        }
-
-        if ((flags & TEX_COMPRESS_BC7_QUICK) && (EP.uMode != 6))
-        {
-            // Use only mode 6
-            continue;
-        }
-
         const size_t uShapes = size_t(1) << ms_aInfo[EP.uMode].uPartitionBits;
         assert(uShapes <= BC7_MAX_SHAPES);
         _Analysis_assume_(uShapes <= BC7_MAX_SHAPES);
@@ -3428,18 +3416,18 @@ void DirectX::D3DXDecodeBC6HS(XMVECTOR *pColor, const uint8_t *pBC)
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC6HU(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC6HU(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
-    UNREFERENCED_PARAMETER(options);
+    UNREFERENCED_PARAMETER(config);
     assert(pBC && pColor);
     static_assert(sizeof(D3DX_BC6H) == 16, "D3DX_BC6H should be 16 bytes");
     reinterpret_cast<D3DX_BC6H*>(pBC)->Encode(false, reinterpret_cast<const HDRColorA*>(pColor));
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC6HS(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC6HS(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
-    UNREFERENCED_PARAMETER(options);
+    UNREFERENCED_PARAMETER(config);
     assert(pBC && pColor);
     static_assert(sizeof(D3DX_BC6H) == 16, "D3DX_BC6H should be 16 bytes");
     reinterpret_cast<D3DX_BC6H*>(pBC)->Encode(true, reinterpret_cast<const HDRColorA*>(pColor));
@@ -3458,9 +3446,9 @@ void DirectX::D3DXDecodeBC7(XMVECTOR *pColor, const uint8_t *pBC)
 }
 
 _Use_decl_annotations_
-void DirectX::D3DXEncodeBC7(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressOptions &options)
+void DirectX::D3DXEncodeBC7(uint8_t *pBC, const XMVECTOR *pColor, const TexCompressConfiguration &config)
 {
     assert(pBC && pColor);
     static_assert(sizeof(D3DX_BC7) == 16, "D3DX_BC7 should be 16 bytes");
-    reinterpret_cast<D3DX_BC7*>(pBC)->Encode(options.flags, reinterpret_cast<const HDRColorA*>(pColor));
+    reinterpret_cast<D3DX_BC7*>(pBC)->Encode(config.options.flags, reinterpret_cast<const HDRColorA*>(pColor));
 }

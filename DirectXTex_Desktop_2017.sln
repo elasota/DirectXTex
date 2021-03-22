@@ -22,7 +22,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FasTCTest", "FasTCTest\FasT
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InspectDDS", "InspectDDS\InspectDDS.csproj", "{E6DDF89F-9056-43F0-9B32-810CE6F9B5F7}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{0000AF32-8A3F-43D7-BF1C-7162C4CCE0E7}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{A2EFE00B-4823-4F6D-8402-944298A7E588}"
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
 	EndProjectSection
@@ -33,7 +33,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ConvectionCPUTest", "Convec
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DDSFile", "DDSFile\DDSFile.csproj", "{03F9D6E4-A320-4835-A82F-D16036F1583E}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{0000AF32-8A3F-43D7-BF1C-7162C4CCE0E7}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{A2EFE00B-4823-4F6D-8402-944298A7E588}"
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
 	EndProjectSection
@@ -230,20 +230,18 @@ Global
 		{03F9D6E4-A320-4835-A82F-D16036F1583E}.Release|Win32.Build.0 = Release|Any CPU
 		{03F9D6E4-A320-4835-A82F-D16036F1583E}.Release|x64.ActiveCfg = Release|Any CPU
 		{03F9D6E4-A320-4835-A82F-D16036F1583E}.Release|x64.Build.0 = Release|Any CPU
-		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Debug|Any CPU.ActiveCfg = Debug|Win32
-		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Debug|Win32.ActiveCfg = Debug|Win32
-		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Debug|Win32.Build.0 = Debug|Win32
+		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Debug|Win32.ActiveCfg = Debug|x64
 		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Debug|x64.ActiveCfg = Debug|x64
 		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Debug|x64.Build.0 = Debug|x64
 		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Profile|Any CPU.ActiveCfg = Release|x64
 		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Profile|Any CPU.Build.0 = Release|x64
-		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Profile|Win32.ActiveCfg = Release|Win32
-		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Profile|Win32.Build.0 = Release|Win32
+		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Profile|Win32.ActiveCfg = Release|x64
+		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Profile|Win32.Build.0 = Release|x64
 		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Profile|x64.ActiveCfg = Release|x64
 		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Profile|x64.Build.0 = Release|x64
-		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Release|Any CPU.ActiveCfg = Release|Win32
-		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Release|Win32.ActiveCfg = Release|Win32
-		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Release|Win32.Build.0 = Release|Win32
+		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Release|Any CPU.ActiveCfg = Release|x64
+		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Release|Win32.ActiveCfg = Release|x64
 		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Release|x64.ActiveCfg = Release|x64
 		{5E4F0557-B7D8-4D9B-9D3A-2B966C9C1B47}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection

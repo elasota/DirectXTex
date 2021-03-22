@@ -97,6 +97,7 @@ enum OPTIONS
     OPT_COMPRESS_GWEIGHT,
     OPT_COMPRESS_BWEIGHT,
     OPT_COMPRESS_AWEIGHT,
+    OPT_COMPRESS_QUALITY,
     OPT_WIC_QUALITY,
     OPT_WIC_LOSSLESS,
     OPT_WIC_MULTIFRAME,
@@ -177,13 +178,12 @@ const SValue g_pOptions[] =
     { L"nmap",          OPT_NORMAL_MAP },
     { L"nmapamp",       OPT_NORMAL_MAP_AMPLITUDE },
     { L"bcuniform",     OPT_COMPRESS_UNIFORM },
-    { L"bcmax",         OPT_COMPRESS_MAX },
-    { L"bcquick",       OPT_COMPRESS_QUICK },
     { L"bcdither",      OPT_COMPRESS_DITHER },
     { L"rweight",       OPT_COMPRESS_RWEIGHT },
     { L"gweight",       OPT_COMPRESS_GWEIGHT },
     { L"bweight",       OPT_COMPRESS_BWEIGHT },
     { L"aweight",       OPT_COMPRESS_AWEIGHT },
+    { L"bcq",           OPT_COMPRESS_QUALITY },
     { L"wicq",          OPT_WIC_QUALITY },
     { L"wiclossless",   OPT_WIC_LOSSLESS },
     { L"wicmulti",      OPT_WIC_MULTIFRAME },
@@ -744,6 +744,7 @@ namespace
         wprintf(L"   -bcquick            Use quick compression (BC7 only)\n");
         wprintf(L"   -bchq               High-quality mode\n");
         wprintf(L"   -bcweight <r g b a> Set compression channel importance\n");
+        wprintf(L"   -bcq <quality>      Set compression quality (0.0 to 1.0)\n");
         wprintf(L"   -wicq <quality>     When writing images with WIC use quality (0.0 to 1.0)\n");
         wprintf(L"   -wiclossless        When writing images with WIC use lossless mode\n");
         wprintf(L"   -wicmulti           When writing images with WIC encode multiframe images\n");
@@ -1191,6 +1192,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             case OPT_COMPRESS_GWEIGHT:
             case OPT_COMPRESS_BWEIGHT:
             case OPT_COMPRESS_AWEIGHT:
+            case OPT_COMPRESS_QUALITY:
                 if (!*pValue)
                 {
                     if ((iArg + 1 >= argc))
@@ -1477,26 +1479,6 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 dwCompress |= TEX_COMPRESS_UNIFORM;
                 break;
 
-            case OPT_COMPRESS_MAX:
-                if (dwCompress & TEX_COMPRESS_BC7_QUICK)
-                {
-                    wprintf(L"Can't use -bcmax and -bcquick at same time\n\n");
-                    PrintUsage();
-                    return 1;
-                }
-                dwCompress |= TEX_COMPRESS_BC7_USE_3SUBSETS;
-                break;
-
-            case OPT_COMPRESS_QUICK:
-                if (dwCompress & TEX_COMPRESS_BC7_USE_3SUBSETS)
-                {
-                    wprintf(L"Can't use -bcmax and -bcquick at same time\n\n");
-                    PrintUsage();
-                    return 1;
-                }
-                dwCompress |= TEX_COMPRESS_BC7_QUICK;
-                break;
-
             case OPT_COMPRESS_DITHER:
                 dwCompress |= TEX_COMPRESS_DITHER;
                 break;
@@ -1505,6 +1487,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             case OPT_COMPRESS_GWEIGHT:
             case OPT_COMPRESS_BWEIGHT:
             case OPT_COMPRESS_AWEIGHT:
+            case OPT_COMPRESS_QUALITY:
                 {
                     float *weightField = nullptr;
                     LPCWSTR optionName = nullptr;
@@ -1527,6 +1510,10 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                     case OPT_COMPRESS_AWEIGHT:
                         weightField = &compressOptions.alphaWeight;
                         optionName = L"-aweight";
+                        break;
+                    case OPT_COMPRESS_QUALITY:
+                        weightField = &compressOptions.quality;
+                        optionName = L"-bcq";
                         break;
                     default:
                         assert(false);

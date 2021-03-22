@@ -53,9 +53,6 @@
     <ClCompile Include="BC6HBC7.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="BC7Parallel.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="BCDirectCompute.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -108,6 +105,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="DirectXTexD3D12.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BCParallel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

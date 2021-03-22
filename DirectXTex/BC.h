@@ -37,8 +37,6 @@ enum BC_FLAGS
     BC_FLAGS_DITHER_RGB         = 0x10000,  // Enables dithering for RGB colors for BC1-3
     BC_FLAGS_DITHER_A           = 0x20000,  // Enables dithering for Alpha channel for BC1-3
     BC_FLAGS_UNIFORM            = 0x40000,  // By default, uses perceptual weighting for BC1-3; this flag makes it a uniform weighting
-    BC_FLAGS_USE_3SUBSETS       = 0x80000,  // By default, BC7 skips mode 0 & 2; this flag adds those modes back
-    BC_FLAGS_FORCE_BC7_MODE6    = 0x100000, // BC7 should only use mode 6; skip other modes
 };
 
 //-------------------------------------------------------------------------------------
@@ -299,7 +297,8 @@ template <bool bRange> void OptimizeAlpha(float *pX, float *pY, const float *pPo
 //-------------------------------------------------------------------------------------
 
 typedef void (*BC_DECODE)(XMVECTOR *pColor, const uint8_t *pBC);
-typedef void (*BC_ENCODE)(uint8_t *pDXT, const XMVECTOR *pColor, const TexCompressOptions &options);
+typedef void (*BC_ENCODE)(uint8_t *pDXT, const XMVECTOR *pColor, const TexCompressConfiguration &config);
+typedef TexCompressConfiguration *(*BC_CONFIGURE)(const TexCompressOptions &options);
 
 void D3DXDecodeBC1(_Out_writes_(NUM_PIXELS_PER_BLOCK) XMVECTOR *pColor, _In_reads_(8) const uint8_t *pBC);
 void D3DXDecodeBC2(_Out_writes_(NUM_PIXELS_PER_BLOCK) XMVECTOR *pColor, _In_reads_(16) const uint8_t *pBC);
@@ -312,25 +311,28 @@ void D3DXDecodeBC6HU(_Out_writes_(NUM_PIXELS_PER_BLOCK) XMVECTOR *pColor, _In_re
 void D3DXDecodeBC6HS(_Out_writes_(NUM_PIXELS_PER_BLOCK) XMVECTOR *pColor, _In_reads_(16) const uint8_t *pBC);
 void D3DXDecodeBC7(_Out_writes_(NUM_PIXELS_PER_BLOCK) XMVECTOR *pColor, _In_reads_(16) const uint8_t *pBC);
 
-void D3DXEncodeBC1(_Out_writes_(8) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC1Parallel(_Out_writes_(8 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC2(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC2Parallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC3(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC3Parallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC4U(_Out_writes_(8) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC4UParallel(_Out_writes_(8 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC4S(_Out_writes_(8) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC4SParallel(_Out_writes_(8 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC5U(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC5UParallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC5S(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC5SParallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC6HU(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC6HUParallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC6HS(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC6HSParallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC7(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
-void D3DXEncodeBC7Parallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressOptions &options);
+TexCompressConfiguration *D3DXConfigureParallel(const TexCompressOptions &options);
+TexCompressConfiguration *D3DXConfigureBC7Parallel(const TexCompressOptions &options);
+
+void D3DXEncodeBC1(_Out_writes_(8) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC1Parallel(_Out_writes_(8 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC2(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC2Parallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC3(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC3Parallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC4U(_Out_writes_(8) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC4UParallel(_Out_writes_(8 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC4S(_Out_writes_(8) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC4SParallel(_Out_writes_(8 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC5U(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC5UParallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC5S(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC5SParallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC6HU(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC6HUParallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC6HS(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC6HSParallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC7(_Out_writes_(16) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
+void D3DXEncodeBC7Parallel(_Out_writes_(16 * NUM_PARALLEL_BLOCKS) uint8_t *pBC, _In_reads_(NUM_PIXELS_PER_BLOCK * NUM_PARALLEL_BLOCKS) const XMVECTOR *pColor, _In_ const TexCompressConfiguration &options);
 
 } // namespace

@@ -203,16 +203,8 @@ HRESULT GPUCompressBC::Prepare(size_t width, size_t height, DWORD flags, DXGI_FO
 
     m_alphaWeight = alphaWeight;
 
-    if (flags & TEX_COMPRESS_BC7_QUICK)
-    {
-        m_bc7_mode02 = false;
-        m_bc7_mode137 = false;
-    }
-    else
-    {
-        m_bc7_mode02 = (flags & TEX_COMPRESS_BC7_USE_3SUBSETS) != 0;
-        m_bc7_mode137 = true;
-    }
+    m_bc7_mode02 = true;
+    m_bc7_mode137 = true;
 
     size_t xblocks = std::max<size_t>(1, (width + 3) >> 2);
     size_t yblocks = std::max<size_t>(1, (height + 3) >> 2);

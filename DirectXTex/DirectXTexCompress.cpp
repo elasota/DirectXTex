@@ -28,9 +28,7 @@ namespace
         static_assert(static_cast<int>(TEX_COMPRESS_A_DITHER) == static_cast<int>(BC_FLAGS_DITHER_A), "TEX_COMPRESS_* flags should match BC_FLAGS_*");
         static_assert(static_cast<int>(TEX_COMPRESS_DITHER) == static_cast<int>(BC_FLAGS_DITHER_RGB | BC_FLAGS_DITHER_A), "TEX_COMPRESS_* flags should match BC_FLAGS_*");
         static_assert(static_cast<int>(TEX_COMPRESS_UNIFORM) == static_cast<int>(BC_FLAGS_UNIFORM), "TEX_COMPRESS_* flags should match BC_FLAGS_*");
-        static_assert(static_cast<int>(TEX_COMPRESS_BC7_USE_3SUBSETS) == static_cast<int>(BC_FLAGS_USE_3SUBSETS), "TEX_COMPRESS_* flags should match BC_FLAGS_*");
-        static_assert(static_cast<int>(TEX_COMPRESS_BC7_QUICK) == static_cast<int>(BC_FLAGS_FORCE_BC7_MODE6), "TEX_COMPRESS_* flags should match BC_FLAGS_*");
-        return (compress & (BC_FLAGS_DITHER_RGB | BC_FLAGS_DITHER_A | BC_FLAGS_UNIFORM | BC_FLAGS_USE_3SUBSETS | BC_FLAGS_FORCE_BC7_MODE6));
+        return (compress & (BC_FLAGS_DITHER_RGB | BC_FLAGS_DITHER_A | BC_FLAGS_UNIFORM));
     }
 
     inline DWORD GetSRGBFlags(_In_ DWORD compress)
@@ -41,8 +39,10 @@ namespace
         return (compress & TEX_COMPRESS_SRGB);
     }
 
-    inline bool DetermineEncoderSettings(_In_ DXGI_FORMAT format, _Out_ BC_ENCODE& pfEncode, _Out_ size_t& blocksize, _Out_ DWORD& cflags, _Out_ int& nBlocksPerChunk)
+    inline bool DetermineEncoderSettings(_In_ DXGI_FORMAT format, _Out_ BC_ENCODE& pfEncode, _Out_ BC_CONFIGURE& pfConfigure, _Out_ size_t& blocksize, _Out_ DWORD& cflags, _Out_ int& nBlocksPerChunk)
     {
+        pfConfigure = D3DXConfigureParallel;
+
         switch (format)
         {
         case DXGI_FORMAT_BC1_UNORM:
@@ -58,7 +58,7 @@ namespace
         case DXGI_FORMAT_BC6H_UF16:         pfEncode = D3DXEncodeBC6HUParallel; blocksize = 16;  cflags = 0; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
         case DXGI_FORMAT_BC6H_SF16:         pfEncode = D3DXEncodeBC6HSParallel; blocksize = 16;  cflags = 0; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
         case DXGI_FORMAT_BC7_UNORM:
-        case DXGI_FORMAT_BC7_UNORM_SRGB:    pfEncode = D3DXEncodeBC7Parallel; blocksize = 16; cflags = 0; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
+        case DXGI_FORMAT_BC7_UNORM_SRGB:    pfEncode = D3DXEncodeBC7Parallel; pfConfigure = D3DXConfigureBC7Parallel;  blocksize = 16; cflags = 0; nBlocksPerChunk = NUM_PARALLEL_BLOCKS; break;
         default:                            pfEncode = nullptr;         blocksize = 0;   cflags = 0; nBlocksPerChunk = 1; return false;
         }
 
@@ -97,11 +97,14 @@ namespace
 
         // Determine BC format encoder
         BC_ENCODE pfEncode;
+        BC_CONFIGURE pfConfigure;
         size_t blocksize;
         DWORD cflags;
         int nBlocksPerChunk = 0;
-        if (!DetermineEncoderSettings(result.format, pfEncode, blocksize, cflags, nBlocksPerChunk))
+        if (!DetermineEncoderSettings(result.format, pfEncode, pfConfigure, blocksize, cflags, nBlocksPerChunk))
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+
+        TexCompressConfiguration *config = pfConfigure(options);
 
         __declspec(align(16)) XMVECTOR tempBlocks[16 * MAX_PARALLEL_BLOCKS];
         const uint8_t *pSrc = image.pixels;
@@ -186,7 +189,7 @@ namespace
                 if (nQueuedBlocks == nBlocksPerChunk)
                 {
                     assert(pfEncode);
-                    pfEncode(dptr, tempBlocks, options);
+                    pfEncode(dptr, tempBlocks, *config);
 
                     dptr += blocksize * nBlocksPerChunk;
                     nQueuedBlocks = 0;
@@ -204,7 +207,7 @@ namespace
                         tempBlocks[i * NUM_PIXELS_PER_BLOCK + element] = XMVectorSet(0.f, 0.f, 0.f, 0.f);
 
                 assert(pfEncode);
-                pfEncode(scratch, tempBlocks, options);
+                pfEncode(scratch, tempBlocks, *config);
 
                 memcpy(dptr, scratch, blocksize * nQueuedBlocks);
                 dptr += blocksize * nQueuedBlocks;
@@ -251,11 +254,16 @@ namespace
 
         // Determine BC format encoder
         BC_ENCODE pfEncode;
+        BC_CONFIGURE pfConfigure;
         size_t blocksize;
         DWORD cflags;
         int nBlocksPerChunk;
-        if (!DetermineEncoderSettings(result.format, pfEncode, blocksize, cflags, nBlocksPerChunk))
+        if (!DetermineEncoderSettings(result.format, pfEncode, pfConfigure, blocksize, cflags, nBlocksPerChunk))
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+
+        TexCompressConfiguration *config = pfConfigure(options);
+        if (!config)
+            return E_OUTOFMEMORY;
 
         // Refactored version of loop to support parallel independance
         const size_t nBlocks = std::max<size_t>(1, (image.width + 3) / 4) * std::max<size_t>(1, (image.height + 3) / 4);
@@ -366,18 +374,20 @@ namespace
             if (numProcessableBlocks == nBlocksPerChunk)
             {
                 assert(pfEncode);
-                pfEncode(pDest, tempBlocks, options);
+                pfEncode(pDest, tempBlocks, *config);
             }
             else
             {
                 uint8_t scratch[MAX_BLOCK_SIZE * MAX_PARALLEL_BLOCKS];
 
                 assert(pfEncode);
-                pfEncode(scratch, tempBlocks, options);
+                pfEncode(scratch, tempBlocks, *config);
 
                 memcpy(pDest, scratch, numProcessableBlocks * blocksize);
             }
         }
+
+        config->Release();
 
         return (fail) ? E_FAIL : S_OK;
     }
