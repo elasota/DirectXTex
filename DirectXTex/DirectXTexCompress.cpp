@@ -105,6 +105,8 @@ namespace
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
 
         TexCompressConfiguration *config = pfConfigure(options);
+        if (!config)
+            return E_OUTOFMEMORY;
 
         __declspec(align(16)) XMVECTOR tempBlocks[16 * MAX_PARALLEL_BLOCKS];
         const uint8_t *pSrc = image.pixels;
@@ -217,6 +219,8 @@ namespace
             pSrc += rowPitch * 4;
             pDest += result.rowPitch;
         }
+
+        config->Release();
 
         return S_OK;
     }
